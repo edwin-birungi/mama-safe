@@ -1,0 +1,13 @@
+{
+  "name": "mamasafe",
+  "version": "0.1.0",
+  "description": "MamaSafe: antenatal care reminders, danger-sign triage and emergency alerts over app, USSD and SMS.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "import:facilities": "node --disable-warning=ExperimentalWarning scripts/import-facilities.js"
+  }
+}

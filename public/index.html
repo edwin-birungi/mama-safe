@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0F6E6E">
+<title>MamaSafe</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="shell">
+  <header id="top"><span class="logo" aria-hidden="true">&#9829;</span><span class="brand">MamaSafe</span></header>
+  <p id="notice" role="status" aria-live="polite" hidden></p>
+  <main id="main" tabindex="-1"></main>
+  <nav id="nav" aria-label="Main" hidden>
+    <button data-view="home">Home</button>
+    <button data-view="visits">Visits</button>
+    <button data-view="sos" class="sos" aria-label="Emergency SOS">SOS</button>
+    <button data-view="check">Check</button>
+    <button data-view="care">Care</button>
+  </nav>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/app.js"></script>
+</body>
+</html>

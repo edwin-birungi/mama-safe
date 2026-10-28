@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MamaSafe facility dashboard</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  #wrap { max-width: 880px; margin: 0 auto; padding: 20px; }
+  .bar2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .bar2 select { width: auto; min-width: 220px; }
+  .tabs button { background: #fff; color: var(--teal); border: 2px solid var(--teal); min-height: 44px; }
+  .tabs button[aria-pressed=true] { background: var(--teal); color: #fff; }
+  .alert { border-left: 8px solid var(--red); }
+  .alert.acknowledged { border-left-color: var(--green); opacity: .8; }
+  .meta { font-size: 14px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .warn { background: var(--amber-soft); color: #6b3205; padding: 10px 14px; border-radius: 12px; font-size: 14px; margin: 10px 0; }
+</style>
+</head>
+<body>
+<header id="top"><span class="logo" aria-hidden="true">&#9829;</span><span class="brand">MamaSafe · Facility dashboard</span></header>
+<div id="wrap">
+  <div id="smswarn" class="warn" hidden>SMS is in dry-run mode: messages are recorded but not sent. Set AT_USERNAME and AT_API_KEY on the server to send them.</div>
+  <div class="bar2">
+    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button> <button id="tab-msgs" aria-pressed="false">Messages</button></div>
+    <label for="fac" class="muted" style="margin:0">Facility</label>
+    <select id="fac"><option value="">All facilities</option></select>
+    <button id="sound" class="ghost" type="button" aria-pressed="false">Sound alert: off</button>
+  </div>
+  <p id="err" class="warn" hidden></p>
+  <section id="alerts" aria-live="polite"></section>
+  <section id="msgs" hidden></section>
+</div>
+<script src="/dashboard.js"></script>
+</body>
+</html>

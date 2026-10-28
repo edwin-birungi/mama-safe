@@ -1,0 +1,10 @@
+{
+  "name": "MamaSafe",
+  "short_name": "MamaSafe",
+  "description": "Antenatal visit reminders, danger-sign check and emergency alerts.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f8f7",
+  "theme_color": "#0f6e6e",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
