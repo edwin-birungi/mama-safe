@@ -15,6 +15,7 @@ const sms = require('./sms');
 const messages = require('./messages');
 const reminders = require('./reminders');
 const auth = require('./auth');
+const payments = require('./payments');
 const ussd = require('./ussd');
 const smsCommands = require('./smsCommands');
 const { importCsv } = require('./importFacilities');
@@ -100,7 +101,8 @@ function createServer(db) {
       edd: schedule.edd(mother.lmp),
       visits: schedule.visits(mother.lmp),
       next: schedule.nextVisit(mother.lmp),
-      facility: mother.facility_id ? facilities.byId(db, mother.facility_id) : null
+      facility: mother.facility_id ? facilities.publicView(facilities.byId(db, mother.facility_id)) : null,
+      payment: payments.summary(db, mother.id)
     };
   }
 
@@ -125,19 +127,87 @@ function createServer(db) {
   });
 
   // Public API
+  const helplines = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'seed', 'helplines.json'), 'utf8')); } catch { return { lines: [] }; }
+  })();
   route('GET', '/api/config', () => ({
-    json: { ussdCode: config.ussdCode, smsNumber: config.smsNumber, emergencyNumber: config.emergencyNumber, countryCode: config.countryCode }
+    json: {
+      ussdCode: config.ussdCode, smsNumber: config.smsNumber, emergencyNumber: config.emergencyNumber, countryCode: config.countryCode,
+      googleMapsKey: config.googleMapsKey, googleMapId: config.googleMapId, helplines: helplines.lines, helplinesChecked: helplines.researched_on
+    }
   }));
+  // Find facilities. lat/lng sorts nearest first; kind, open24 and q (name or district) filter;
+  // limit/offset page. alert_phone and internal notes are never included.
   route('GET', '/api/facilities', ({ query }) => {
     const lat = num(query.get('lat')), lng = num(query.get('lng'));
-    if (!validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
-    return { json: { facilities: facilities.list(db, { lat, lng, open24: query.get('open24') === '1' }).map(({ phone, ...f }) => ({ ...f, phone })) } };
+    if (lat !== undefined && !Number.isFinite(lat) || lng !== undefined && !Number.isFinite(lng) || !validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
+    const opts = {
+      lat, lng, kind: query.get('kind') || undefined, q: query.get('q') || undefined, open24: query.get('open24') === '1'
+    };
+    const limit = Math.min(Math.max(Number(query.get('limit')) || 200, 1), 500);
+    const offset = Math.max(Number(query.get('offset')) || 0, 0);
+    const all = facilities.list(db, opts);
+    return { json: { total: all.length, facilities: all.slice(offset, offset + limit).map(facilities.publicView) } };
   });
   route('GET', '/api/symptoms', () => ({ json: { symptoms: triage.visibleSymptoms() } }));
   route('POST', '/api/triage', ({ body }) => {
     const ids = Array.isArray(body.symptoms) ? body.symptoms.filter((s) => typeof s === 'string').slice(0, 20) : [];
     const r = triage.classify(ids);
     return { json: { ...r, labels: triage.labelsFor(r.matched) } };
+  });
+
+  // Payments (optional). The browser is sent to Flutterwave's hosted page; we confirm with them directly.
+  route('POST', '/api/payments/checkout', async ({ req, body, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('pay:' + ip, 10)) throw new HttpError(429, 'Slow down.');
+    try {
+      const r = await payments.checkout(db, mother, { email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email || '') ? body.email : undefined });
+      return { json: { link: r.link, mock: !!r.mock } };
+    } catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
+  });
+  // Send a payment prompt to the mother's MTN MoMo phone; she approves it with her PIN.
+  route('POST', '/api/payments/momo', async ({ req, body, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('momo:' + ip, 10)) throw new HttpError(429, 'Slow down.');
+    try {
+      const r = await payments.momoPush(db, mother, body.phone || undefined);
+      return { json: { ok: true, payer: r.payer } };
+    } catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
+  });
+  // The page polls this while she approves on her phone; it asks MTN if a prompt is open.
+  route('GET', '/api/payments/status', async ({ req }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    const polled = await payments.pollOpen(db, mother.id);
+    return { json: { ...payments.summary(db, mother.id), last: polled && polled.status } };
+  });
+  for (const method of ['PUT', 'POST']) {
+    route(method, '/webhooks/airtel/:key', async ({ params, body }) => {
+      const r = await payments.airtelCallback(db, params[0], body);
+      return { status: r.status, text: r.text };
+    });
+    route(method, '/webhooks/momo/:key', async ({ params, body }) => {
+      const r = await payments.momoCallback(db, params[0], body);
+      return { status: r.status, text: r.text };
+    });
+  }
+  route('POST', '/webhooks/flutterwave', async ({ req, body }) => {
+    const r = await payments.webhook(db, req.headers, body);
+    return { status: r.status, text: r.text };
+  });
+  // Where Flutterwave sends the mother's browser afterwards. The URL's "status" is NOT trusted.
+  route('GET', '/pay/return', async ({ query }) => {
+    const ref = query.get('tx_ref') || '';
+    let st = 'pending';
+    try { st = (await payments.verify(db, ref)).status; } catch { /* webhook will settle it */ }
+    return { redirect: '/?payment=' + (st === 'successful' ? 'success' : st === 'failed' ? 'failed' : 'pending') };
+  });
+  route('GET', '/pay/mock', ({ query }) => {
+    if (config.env === 'production' || payments.live()) throw new HttpError(404, 'Not found');
+    const r = payments.mockComplete(db, query.get('tx_ref') || '', query.get('result') !== 'fail');
+    return { redirect: '/?payment=' + (r.status === 'successful' ? 'success' : 'failed') };
   });
 
   // Phone sign-in
@@ -212,7 +282,7 @@ function createServer(db) {
     const lat = num(body.lat), lng = num(body.lng);
     if (!validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
     const r = alerts.createAlert(db, { mother, symptoms: result.matched, lat, lng, channel: 'app' });
-    return { status: 201, json: { alertId: r.alert.id, duplicate: r.duplicate, facility: r.facility && { name: r.facility.name, phone: r.facility.phone, lat: r.facility.lat, lng: r.facility.lng } } };
+    return { status: 201, json: { alertId: r.alert.id, duplicate: r.duplicate, notified: r.notified, facility: r.facility && facilities.publicView(r.facility) } };
   });
 
   // Dashboard API (HTTP Basic auth)
@@ -226,6 +296,37 @@ function createServer(db) {
     adminCheck(req);
     const ok = alerts.acknowledge(db, Number(params[0]), 'dashboard');
     return { status: ok ? 200 : 404, json: { ok } };
+  });
+  // Staff-maintained contact details. alert_phone must be a MOBILE that can receive SMS.
+  route('PATCH', '/api/admin/facilities/:id', ({ req, params, body }) => {
+    adminCheck(req);
+    const f = facilities.byId(db, Number(params[0]));
+    if (!f) throw new HttpError(404, 'Unknown facility.');
+    const sets = [], vals = [];
+    for (const k of ['phone', 'emergency_phone', 'toll_free', 'alert_phone']) {
+      if (body[k] === undefined) continue;
+      const v = body[k] ? normalizePhone(body[k]) : null;
+      if (body[k] && !v) throw new HttpError(400, `${k} is not a valid number.`);
+      sets.push(`${k} = ?`); vals.push(v);
+    }
+    if (body.open24 !== undefined) { sets.push('open24 = ?'); vals.push(body.open24 === null ? null : body.open24 ? 1 : 0); }
+    if (sets.length) {
+      sets.push('contact_confidence = ?', 'researched_on = ?');
+      vals.push('medium', new Date().toISOString().slice(0, 10));
+      db.prepare(`UPDATE facilities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, f.id);
+    }
+    return { json: { facility: facilities.byId(db, f.id) } };
+  });
+  route('POST', '/api/admin/mothers/:id/waive', ({ req, params, body }) => {
+    adminCheck(req);
+    const m = mothersSvc.byId(db, Number(params[0]));
+    if (!m) throw new HttpError(404, 'Unknown mother.');
+    payments.waive(db, m.id, 'dashboard', String(body.note || ''));
+    return { json: payments.summary(db, m.id) };
+  });
+  route('GET', '/api/admin/payments', ({ req }) => {
+    adminCheck(req);
+    return { json: { payments: payments.list(db) } };
   });
   route('GET', '/api/admin/outbox', ({ req }) => {
     adminCheck(req);
@@ -249,8 +350,11 @@ function createServer(db) {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; " +
-        "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self'; frame-ancestors 'none'"
+        "default-src 'self'; script-src 'self' https://unpkg.com" + (config.googleMapsKey ? ' https://maps.googleapis.com' : '') + '; ' +
+        "style-src 'self' 'unsafe-inline' https://unpkg.com" + (config.googleMapsKey ? ' https://fonts.googleapis.com' : '') + '; ' +
+        "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com" + (config.googleMapsKey ? ' https://maps.gstatic.com https://maps.googleapis.com https://*.ggpht.com https://*.googleusercontent.com' : '') + '; ' +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "connect-src 'self'" + (config.googleMapsKey ? ' https://maps.googleapis.com https://*.googleapis.com' : '') + "; worker-src 'self' blob:; frame-ancestors 'none'"
     };
     for (const [k, v] of Object.entries(secure)) res.setHeader(k, v);
     try {
@@ -267,7 +371,8 @@ function createServer(db) {
         if (r.method !== req.method) continue;
         const m = pathname.match(r.re);
         if (!m) continue;
-        const out = r.handler({ req, body, query: url.searchParams, params: m.slice(1), ip }) || {};
+        const out = (await r.handler({ req, body, query: url.searchParams, params: m.slice(1), ip })) || {};
+        if (out.redirect) { res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' }); return res.end(); }
         if (out.text !== undefined) {
           res.writeHead(out.status || 200, { 'Content-Type': 'text/plain; charset=utf-8' });
           return res.end(out.text);
@@ -286,15 +391,12 @@ function createServer(db) {
   });
 }
 
+// First run: load the curated Uganda list (real hospitals, contact details flagged by confidence).
 function seedFacilities(db) {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM facilities').get().n;
-  if (count > 0) return;
-  if (config.env === 'production') {
-    console.warn('WARNING: no facilities loaded. Run: npm run import:facilities -- your-facilities.csv');
-    return;
-  }
-  const r = importCsv(db, path.join(__dirname, '..', 'data', 'facilities.sample.csv'));
-  console.warn(`DEVELOPMENT: loaded ${r.imported} SAMPLE facilities (fake names and phone numbers). Import real ones before launch.`);
+  if (facilities.count(db) > 0) return;
+  const r = importCsv(db, path.join(__dirname, '..', 'seed', 'facilities.uganda.csv'));
+  console.warn(`Loaded ${r.imported} hospitals from seed/facilities.uganda.csv. Add health centres and clinics with: npm run import:facilities`);
+  console.warn('Phone numbers have contact_confidence flags. Confirm them by phone, and set alert_phone (a mobile) per facility so alerts can be sent by SMS.');
 }
 
 function main() {

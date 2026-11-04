@@ -8,13 +8,23 @@ CREATE TABLE IF NOT EXISTS facilities (
   id INTEGER PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  level TEXT,
-  area TEXT NOT NULL,
-  phone TEXT,
+  kind TEXT,                 -- hospital | health_centre | clinic | other
+  level TEXT,                -- National Referral, Regional Referral, HC IV, ...
+  area TEXT NOT NULL,        -- district
+  phone TEXT,                -- main public number
+  emergency_phone TEXT,
+  toll_free TEXT,
+  alert_phone TEXT,          -- a MOBILE that receives emergency SMS. Never shown publicly.
+  email TEXT,
+  website TEXT,
   lat REAL,
   lng REAL,
-  open24 INTEGER NOT NULL DEFAULT 0,
-  services TEXT
+  open24 INTEGER,            -- 1 yes, 0 no, NULL unknown
+  services TEXT,
+  source TEXT,
+  contact_confidence TEXT,   -- medium | low | none
+  researched_on TEXT,
+  notes TEXT                 -- internal; never shown publicly
 );
 CREATE TABLE IF NOT EXISTS mothers (
   id INTEGER PRIMARY KEY,
@@ -37,6 +47,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   lng REAL,
   channel TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'new',
+  notified INTEGER NOT NULL DEFAULT 0,   -- 1 if the facility was sent an SMS
   created_at TEXT NOT NULL,
   ack_at TEXT,
   ack_by TEXT
@@ -67,6 +78,20 @@ CREATE TABLE IF NOT EXISTS otps (
   sent_count INTEGER NOT NULL DEFAULT 0,
   window_start INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY,
+  tx_ref TEXT NOT NULL UNIQUE,
+  mother_id INTEGER NOT NULL REFERENCES mothers(id),
+  amount REAL NOT NULL,
+  currency TEXT NOT NULL,
+  provider TEXT NOT NULL,        -- flutterwave | mock | waiver
+  status TEXT NOT NULL,          -- pending | successful | failed | waived
+  provider_ref TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  paid_at TEXT
+);
+CREATE INDEX IF NOT EXISTS payments_mother ON payments(mother_id, status);
 CREATE TABLE IF NOT EXISTS tokens (
   token_hash TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
@@ -74,12 +99,32 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 `;
 
+// Databases created by version 0.1 lack the newer columns; add them in place.
+const ADDED = {
+  facilities: {
+    kind: 'TEXT', emergency_phone: 'TEXT', toll_free: 'TEXT', alert_phone: 'TEXT', email: 'TEXT', website: 'TEXT',
+    source: 'TEXT', contact_confidence: 'TEXT', researched_on: 'TEXT', notes: 'TEXT'
+  },
+  alerts: { notified: 'INTEGER NOT NULL DEFAULT 0' }
+};
+
+function migrate(db) {
+  for (const [table, cols] of Object.entries(ADDED)) {
+    const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name));
+    for (const [col, type] of Object.entries(cols)) {
+      if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS facilities_area ON facilities(area); CREATE INDEX IF NOT EXISTS facilities_kind ON facilities(kind);');
+}
+
 function open(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON;');
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

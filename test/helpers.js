@@ -6,7 +6,7 @@ const schedule = require('../src/schedule');
 
 function freshDb() {
   const db = open(':memory:');
-  importCsv(db, path.join(__dirname, '..', 'data', 'facilities.sample.csv'));
+  importCsv(db, path.join(__dirname, '..', 'test', 'fixtures', 'facilities.sample.csv'));
   return db;
 }
 

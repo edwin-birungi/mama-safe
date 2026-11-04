@@ -31,7 +31,7 @@ test('REG explains bad dates and unknown clinic codes', () => {
   assert.match(text(db, 'REG 999999 SHC4A'), /date not understood/);
   const r = text(db, `REG ${ddmmyy(50)} NOPE`);
   assert.match(r, /clinic code not found/);
-  assert.match(r, /SHC3A=SAMPLE Health Centre III/);
+  assert.match(r, /CLINICS/);
   assert.equal(mothers.byPhone(db, PHONE), null);
 });
 
@@ -65,7 +65,7 @@ test('VISIT, CLINIC, STOP and START', () => {
   const db = freshDb();
   reg(db);
   assert.match(text(db, 'VISIT'), /visit \d of 8 is \w{3} \d+ \w{3} at SAMPLE/);
-  assert.match(text(db, 'CLINIC'), /your clinic is SAMPLE Health Centre III/);
+  assert.match(text(db, 'CLINIC'), /SAMPLE Health Centre III \(Area A\), Sample Area A\. Tel 0700000001/);
   assert.match(text(db, 'STOP'), /no longer get visit reminders/);
   assert.equal(mothers.byPhone(db, PHONE).sms_optin, false);
   assert.match(text(db, 'START'), /reminders are on again/);
@@ -77,10 +77,35 @@ test('facility can acknowledge an alert by SMS, only from its own number', () =>
   reg(db);
   text(db, 'SOS');
   const a = db.prepare('SELECT * FROM alerts').get();
-  const fac = db.prepare('SELECT phone FROM facilities WHERE id = ?').get(a.facility_id);
+  const fac = db.prepare('SELECT alert_phone AS phone FROM facilities WHERE id = ?').get(a.facility_id);
   assert.equal(text(db, `ACK ${a.id}`, '0799999999'), null); // stranger: ignored
   assert.equal(db.prepare('SELECT status FROM alerts').get().status, 'new');
   assert.match(text(db, `ACK ${a.id}`, fac.phone), /acknowledged/);
   assert.equal(db.prepare('SELECT status FROM alerts').get().status, 'acknowledged');
   assert.match(text(db, `ACK ${a.id}`, fac.phone), /no open alert/);
+});
+
+test('CLINICS finds facilities by district with codes and numbers, for anyone', () => {
+  const db = freshDb();
+  const r = text(db, 'CLINICS sample area b');
+  assert.match(r, /SHC4B=SAMPLE Health Centre IV \(Area B\) 0700000006/);
+  assert.match(text(db, 'CLINICS'), /text CLINICS and your district/);
+  assert.match(text(db, 'CLINICS nowhere'), /no listed facility/);
+});
+
+test('REG accepts the numeric id from a listing as well as the code', () => {
+  const db = freshDb();
+  const id = db.prepare("SELECT id FROM facilities WHERE code = 'SHC4B'").get().id;
+  assert.match(text(db, `REG ${ddmmyy(50)} ${id}`), /Welcome/);
+  assert.equal(mothers.byPhone(db, PHONE).facility_id, id);
+});
+
+test('a facility cannot acknowledge from its landline: only its registered alert mobile', () => {
+  const db = freshDb();
+  reg(db);
+  text(db, 'SOS');
+  const a = db.prepare('SELECT * FROM alerts').get();
+  db.prepare('UPDATE facilities SET phone = ? WHERE id = ?').run('+256414000000', a.facility_id);
+  assert.equal(text(db, `ACK ${a.id}`, '0414000000'), null);
+  assert.equal(db.prepare('SELECT status FROM alerts').get().status, 'new');
 });

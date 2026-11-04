@@ -4,7 +4,7 @@ COPY package.json ./
 COPY src ./src
 COPY public ./public
 COPY scripts ./scripts
-COPY data/facilities.sample.csv ./data/facilities.sample.csv
+COPY seed ./seed
 ENV MAMASAFE_ENV=production PORT=3000 MAMASAFE_DB=/app/data/mamasafe.db
 VOLUME /app/data
 EXPOSE 3000

@@ -17,10 +17,11 @@ test('unregistered caller sees register / check menu', () => {
 test('registration flow end to end over USSD', () => {
   const db = freshDb();
   assert.match(dial(db, '1'), /^CON Register/);
-  assert.match(dial(db, `1*${ddmmyy(100)}`), /^CON Your area:\n1\. Sample Area A\n2\. Sample Area B/);
-  assert.match(dial(db, `1*${ddmmyy(100)}*1`), /^CON Your clinic:\n1\. SAMPLE Health Centre III/);
-  assert.match(dial(db, `1*${ddmmyy(100)}*1*2`), /^CON Phone number of someone/);
-  const end = dial(db, `1*${ddmmyy(100)}*1*2*0700111222`);
+  assert.match(dial(db, `1*${ddmmyy(100)}`), /^CON Your clinic: type your district/);
+  assert.match(dial(db, `1*${ddmmyy(100)}*sam`), /^CON Which district\?\n1\. Sample Area A\n2\. Sample Area B/);
+  assert.match(dial(db, `1*${ddmmyy(100)}*sam*1`), /^CON Sample Area A:\n1\. SAMPLE Referral Hospital/);
+  assert.match(dial(db, `1*${ddmmyy(100)}*sam*1*2`), /^CON Phone number of someone/);
+  const end = dial(db, `1*${ddmmyy(100)}*sam*1*2*0700111222`);
   assert.match(end, /^END Registered\./);
   assert.match(end, /Week 14/);
   const m = mothers.byPhone(db, PHONE);
@@ -34,7 +35,7 @@ test('registration flow end to end over USSD', () => {
 
 test('registration can skip the emergency contact; bad input keeps the screen', () => {
   const db = freshDb();
-  const base = `1*${ddmmyy(60)}*1*1`;
+  const base = `1*${ddmmyy(60)}*sample area a*1`;
   assert.match(dial(db, `1*999999`), /^CON Invalid date/);
   assert.match(dial(db, `${base}*12`), /^CON Invalid number/);
   assert.match(dial(db, `${base}*1`), /^END Registered/);
@@ -44,7 +45,7 @@ test('registration can skip the emergency contact; bad input keeps the screen', 
 test('registered caller gets the full menu and visit info', () => {
   const db = freshDb();
   registered(db);
-  assert.match(dial(db, ''), /1\. My next visit\n2\. I feel unwell\n3\. My health facility\n4\. EMERGENCY/);
+  assert.match(dial(db, ''), /1\. My next visit\n2\. I feel unwell\n3\. My health facility\n4\. EMERGENCY\n5\. Find a hospital/);
   assert.match(dial(db, '1'), /^CON Visit \d of 8\n/);
   assert.match(dial(db, '3'), /^CON Your facility:\nSAMPLE/);
   assert.match(dial(db, '1*0'), /^CON MamaSafe\n1\. My next visit/);
@@ -113,4 +114,41 @@ test('every screen fits the USSD length limit', () => {
 test('unreadable phone numbers end the session', () => {
   const db = freshDb();
   assert.match(ussd.handle(db, { phone: '', text: '' }), /^END /);
+});
+
+test('find a hospital: district search, paged list, and every number we hold', () => {
+  const db = freshDb();
+  db.prepare("UPDATE facilities SET emergency_phone='+256414675065', toll_free='+256800100036' WHERE code='SHOSP'").run();
+  assert.match(dial(db, '3'), /^CON Find a hospital: type your district/);
+  assert.match(dial(db, '3*s'), /^CON Type at least 2 letters/);
+  assert.match(dial(db, '3*zzz'), /^CON No district found/);
+  const list = dial(db, '3*sample area a');
+  assert.match(list, /^CON Sample Area A:\n1\. SAMPLE Referral Hospital/);
+  const detail = dial(db, '3*sample area a*1');
+  assert.match(detail, /Tel 0700000004\nEmergency 0414675065\nToll-free 0800100036/);
+  assert.match(dial(db, '3*sample area a*1*0'), /^CON Sample Area A:/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM mothers').get().n, 0); // browsing never registers anyone
+});
+
+test('facility lists page four at a time', () => {
+  const db = freshDb();
+  for (let i = 0; i < 6; i++) db.prepare("INSERT INTO facilities (code,name,kind,area) VALUES (?,?,?,?)").run('P' + i, 'Pager Clinic ' + i, 'clinic', 'Pagerland');
+  const p1 = dial(db, '3*pager');
+  assert.match(p1, /9\. More/);
+  const p2 = dial(db, '3*pager*9');
+  assert.match(p2, /1\. Pager Clinic \d\n2\. Pager Clinic \d\n0\. Back/);
+  assert.ok(!/9\. More/.test(p2));
+});
+
+test('SOS says the facility is told only when an SMS really went to it', () => {
+  const db = freshDb();
+  registered(db);
+  db.prepare("UPDATE facilities SET alert_phone = NULL").run(); // none can receive SMS
+  const out = dial(db, '4*1');
+  assert.match(out, /We could not message them/);
+  assert.ok(!/has been told/.test(out));
+  const a = db.prepare('SELECT * FROM alerts').get();
+  assert.equal(a.notified, 0);
+  assert.equal(outbox(db).filter((o) => o.kind === 'alert-facility').length, 0);
+  assert.match(outbox(db).find((o) => o.kind === 'alert-mother').body, /We could not message them, so please call/);
 });

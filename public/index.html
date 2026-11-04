@@ -12,15 +12,15 @@
 </head>
 <body>
 <div id="shell">
-  <header id="top"><span class="logo" aria-hidden="true">&#9829;</span><span class="brand">MamaSafe</span></header>
+  <header id="top"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.8-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.2 12 21 12 21z"/></svg></span><span class="brand">MamaSafe</span><button id="helpbtn" class="help-btn" type="button" aria-label="Open the user guide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.4-1.1.9-1.1 1.7M12 17h.01"/></svg>Guide</button></header>
   <p id="notice" role="status" aria-live="polite" hidden></p>
   <main id="main" tabindex="-1"></main>
   <nav id="nav" aria-label="Main" hidden>
-    <button data-view="home">Home</button>
-    <button data-view="visits">Visits</button>
+    <button data-view="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.8V20h13V9.8"/><path d="M10 20v-5.5h4V20"/></svg><span>Home</span></button>
+    <button data-view="visits"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg><span>Visits</span></button>
     <button data-view="sos" class="sos" aria-label="Emergency SOS">SOS</button>
-    <button data-view="check">Check</button>
-    <button data-view="care">Care</button>
+    <button data-view="check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7-4.5-7-10a4.1 4.1 0 0 1 7-2.8 4.1 4.1 0 0 1 7 2.8c0 5.5-7 10-7 10z"/><path d="M7.5 12h2.2l1.3-2.5 2 4.5 1.3-2h2.2"/></svg><span>Check</span></button>
+    <button data-view="care"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span>Care</span></button>
   </nav>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
