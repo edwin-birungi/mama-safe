@@ -117,3 +117,61 @@ test('static files, health check and path traversal', async (t) => {
   const csp = (await fetch(base + '/')).headers.get('content-security-policy');
   assert.match(csp, /frame-ancestors 'none'/);
 });
+
+test('facility finder API: nearest first, filters, paging, and private fields never leak', async (t) => {
+  const { db, base, close } = await start();
+  t.after(close);
+  db.prepare("UPDATE facilities SET toll_free='+256800100036', notes='internal' WHERE code='SHOSP'").run();
+
+  const near = await json(base, '/api/facilities?lat=0.3476&lng=32.5825&limit=2');
+  assert.equal(near.status, 200);
+  assert.equal(near.body.total, 6);
+  assert.equal(near.body.facilities.length, 2);
+  assert.equal(near.body.facilities[0].code, 'SHC3A');
+  assert.ok(near.body.facilities[0].distanceKm < 0.1);
+  for (const f of near.body.facilities) { assert.ok(!('alert_phone' in f)); assert.ok(!('notes' in f)); }
+
+  const hosp = await json(base, '/api/facilities?kind=hospital');
+  assert.deepEqual(hosp.body.facilities.map((f) => f.code), ['SHOSP']);
+  assert.equal(hosp.body.facilities[0].toll_free, '+256800100036');
+  assert.equal((await json(base, '/api/facilities?q=area%20b')).body.total, 2);
+  assert.equal((await json(base, '/api/facilities?open24=1')).body.facilities.every((f) => f.open24 === true), true);
+  assert.equal((await json(base, '/api/facilities?lat=abc&lng=1')).status, 400);
+  assert.equal((await json(base, '/api/facilities?lat=95&lng=1')).status, 400);
+});
+
+test('config exposes helplines and the maps key; the admin can set a facility alert mobile', async (t) => {
+  const { db, base, close } = await start();
+  t.after(close);
+  const c = await json(base, '/api/config');
+  assert.ok(c.body.helplines.some((l) => l.number === '999'));
+  assert.equal(typeof c.body.googleMapsKey, 'string');
+  const id = db.prepare("SELECT id FROM facilities WHERE code = 'SCLA'").get().id;
+  const bad = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', body: { alert_phone: 'abc' } });
+  assert.equal(bad.status, 400);
+  const ok = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', body: { alert_phone: '0777 123 456' } });
+  assert.equal(ok.status, 200);
+  assert.equal(db.prepare('SELECT alert_phone FROM facilities WHERE id = ?').get(id).alert_phone, '+256777123456');
+});
+
+test('curated Uganda list loads cleanly and every number is well formed', () => {
+  const path = require('path');
+  const { open } = require('../src/db');
+  const { importCsv } = require('../src/importFacilities');
+  const { isTollFree } = require('../src/phone');
+  const db = open(':memory:');
+  const r = importCsv(db, path.join(__dirname, '..', 'seed', 'facilities.uganda.csv'));
+  assert.equal(r.skipped.length, 0);
+  assert.ok(r.imported >= 20);
+  for (const f of db.prepare('SELECT * FROM facilities').all()) {
+    assert.ok(f.lat > -2 && f.lat < 5 && f.lng > 28 && f.lng < 36, `${f.code} coordinates inside Uganda`);
+    for (const k of ['phone', 'emergency_phone', 'toll_free']) if (f[k]) assert.match(f[k], /^\+256\d{9}$/, `${f.code} ${k}`);
+    if (f.toll_free) assert.ok(isTollFree(f.toll_free), `${f.code} toll_free is 0800/0801`);
+    if (f.phone) assert.ok(!isTollFree(f.phone), `${f.code} phone should not be toll-free`);
+    assert.ok(f.contact_confidence, `${f.code} has a confidence flag`);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM facilities WHERE alert_phone IS NOT NULL').get().n, 0); // never ship guessed staff mobiles
+  // re-import is idempotent
+  importCsv(db, path.join(__dirname, '..', 'seed', 'facilities.uganda.csv'));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM facilities').get().n, r.imported);
+});

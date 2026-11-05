@@ -1,0 +1,47 @@
+{
+  "researched_on": "2026-10-26",
+  "note": "Shown in the app. Only numbers from a current or official source are listed. Confirm each number before launch and re-check every few months.",
+  "lines": [
+    {
+      "name": "National emergency",
+      "number": "999",
+      "tel": "999",
+      "kind": "emergency",
+      "note": "Police and general emergency. 112 also works.",
+      "confidence": "high",
+      "source": "https://www.pulse.ug/story/police-publish-national-emergency-crime-reporting-hotlines-2026031011583031146"
+    },
+    {
+      "name": "National emergency (alternate)",
+      "number": "112",
+      "tel": "112",
+      "kind": "emergency",
+      "note": "Do not rely on it for an ambulance.",
+      "confidence": "high",
+      "source": "https://www.pulse.ug/story/police-publish-national-emergency-crime-reporting-hotlines-2026031011583031146"
+    },
+    {
+      "name": "Uganda Red Cross Society",
+      "number": "0800 211 088",
+      "tel": "+256800211088",
+      "kind": "toll_free",
+      "note": "Toll-free line on the Red Cross website for public emergencies. Not confirmed to dispatch ambulances.",
+      "confidence": "medium",
+      "source": "https://redcrossug.org/?p=11906"
+    },
+    {
+      "name": "Reproductive Health Uganda",
+      "number": "0800 299 003",
+      "tel": "+256800299003",
+      "kind": "toll_free",
+      "note": "Sexual and reproductive health information and clinic bookings. Not an emergency line.",
+      "confidence": "medium",
+      "source": "https://www.rhu.or.ug/?p=3361"
+    }
+  ],
+  "not_listed_until_confirmed": [
+    { "number": "0800 100 066, 0800 203 033", "why": "Ministry of Health toll-free lines seen only in 2020 sources." },
+    { "number": "0800 299 000 or 0800 199 000", "why": "KCCA ambulance line: its own page gives two different numbers (2023)." },
+    { "number": "0800 311 222", "why": "Naguru Teenage Centre line, 2020 source only, not maternal." }
+  ]
+}

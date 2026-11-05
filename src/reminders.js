@@ -3,6 +3,7 @@ const config = require('./config');
 const schedule = require('./schedule');
 const facilities = require('./facilities');
 const sms = require('./sms');
+const payments = require('./payments');
 
 const KINDS = { 3: 'd3', 1: 'd1', 0: 'd0' };
 
@@ -23,6 +24,7 @@ function run(db, now = new Date()) {
   for (const m of db.prepare('SELECT * FROM mothers WHERE sms_optin = 1').all()) {
     const next = schedule.nextVisit(m.lmp, today);
     if (!next) continue;
+    if (!payments.hasAccess(db, m.id)) continue; // fee on and unpaid: reminders wait. Emergency help never does.
     const diff = Math.round((schedule.parseDate(next.date) - today) / 86400000);
     const kind = KINDS[diff];
     if (!kind) continue;

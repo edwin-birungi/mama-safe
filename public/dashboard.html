@@ -3,33 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0F6E6E">
 <title>MamaSafe facility dashboard</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
-<style>
-  #wrap { max-width: 880px; margin: 0 auto; padding: 20px; }
-  .bar2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
-  .bar2 select { width: auto; min-width: 220px; }
-  .tabs button { background: #fff; color: var(--teal); border: 2px solid var(--teal); min-height: 44px; }
-  .tabs button[aria-pressed=true] { background: var(--teal); color: #fff; }
-  .alert { border-left: 8px solid var(--red); }
-  .alert.acknowledged { border-left-color: var(--green); opacity: .8; }
-  .meta { font-size: 14px; color: var(--muted); }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  td, th { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  .warn { background: var(--amber-soft); color: #6b3205; padding: 10px 14px; border-radius: 12px; font-size: 14px; margin: 10px 0; }
-</style>
 </head>
-<body>
-<header id="top"><span class="logo" aria-hidden="true">&#9829;</span><span class="brand">MamaSafe · Facility dashboard</span></header>
+<body class="dash">
+<header id="top"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.8-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.2 12 21 12 21z"/></svg></span><span class="brand">MamaSafe · Facility dashboard</span></header>
 <div id="wrap">
   <div id="smswarn" class="warn" hidden>SMS is in dry-run mode: messages are recorded but not sent. Set AT_USERNAME and AT_API_KEY on the server to send them.</div>
+
+  <details class="card acc" id="manual">
+    <summary><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5C6.5 4.5 9.5 4.5 12 6c2.5-1.5 5.5-1.5 8-.5v13c-2.5-1-5.5-1-8 .5-2.5-1.5-5.5-1.5-8-.5z"/><path d="M12 6v13.5"/></svg></span>First time here? How to use this dashboard</summary>
+    <div class="body">
+      <ol class="steps">
+        <li><b>Keep this page open</b><span class="muted">Alerts appear on their own every few seconds. Turn on <i>Sound alert</i> so a beep plays when a new emergency arrives (your browser needs one click first).</span></li>
+        <li><b>Choose your facility</b><span class="muted">Use the <i>Facility</i> menu to see only the alerts sent to your hospital or clinic.</span></li>
+        <li><b>Read the alert</b><span class="muted">Each red card shows the mother's name and phone (tap to call), her week of pregnancy, her symptoms, the channel she used (app, USSD or SMS), a link to her location when her phone shared it, and her emergency contact.</span></li>
+        <li><b>Respond, then press "I am acting on this"</b><span class="muted">This marks the alert acknowledged, turns it green and records who and when. You can also reply <code>ACK &lt;alert number&gt;</code> by SMS from the facility's alert mobile.</span></li>
+        <li><b>Watch for the red warning</b><span class="muted">If a card says <i>The facility was NOT sent an SMS</i>, nobody was told by text. Phone the facility or the mother straight away.</span></li>
+      </ol>
+      <p class="muted"><b>Messages tab:</b> every SMS the system sent or tried to send, with its status. Use it to check that reminders and alerts really went out.</p>
+      <div class="callout red"><b>An alert nobody reads is dangerous.</b> Decide who watches this page and the alert phone in every shift, and what happens if an alert is not acknowledged. Escalation is not automatic.</div>
+    </div>
+  </details>
+
   <div class="bar2">
-    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button> <button id="tab-msgs" aria-pressed="false">Messages</button></div>
+    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button><button id="tab-msgs" aria-pressed="false">Messages</button></div>
     <label for="fac" class="muted" style="margin:0">Facility</label>
     <select id="fac"><option value="">All facilities</option></select>
     <button id="sound" class="ghost" type="button" aria-pressed="false">Sound alert: off</button>
   </div>
+  <div id="stats" class="stats" hidden></div>
   <p id="err" class="warn" hidden></p>
   <section id="alerts" aria-live="polite"></section>
   <section id="msgs" hidden></section>

@@ -1,0 +1,7 @@
+code,name,kind,level,area,phone,alert_phone,lat,lng,open24,services
+SHC3A,SAMPLE Health Centre III (Area A),health_centre,HC III,Sample Area A,0700000001,0700000001,0.3476,32.5825,no,"Antenatal care, normal delivery"
+SHC4A,SAMPLE Health Centre IV (Area A),health_centre,HC IV,Sample Area A,0700000002,0700000002,0.3560,32.5990,yes,"Maternity ward, operating theatre, blood transfusion"
+SCLA,SAMPLE Private Clinic (Area A),clinic,Clinic,Sample Area A,0700000003,,0.3390,32.5700,no,"Antenatal care, ultrasound scans"
+SHOSP,SAMPLE Referral Hospital (Area A),hospital,Hospital,Sample Area A,0700000004,0700000004,0.3300,32.6100,yes,"Emergency obstetric care, blood bank, neonatal unit"
+SHC3B,SAMPLE Health Centre III (Area B),health_centre,HC III,Sample Area B,0700000005,0700000005,0.4120,32.6400,no,"Antenatal care, normal delivery"
+SHC4B,SAMPLE Health Centre IV (Area B),health_centre,HC IV,Sample Area B,0700000006,0700000006,0.4200,32.6550,yes,"Maternity ward, operating theatre"
