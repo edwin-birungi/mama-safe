@@ -1,9 +1,11 @@
 'use strict';
 const facilities = require('./facilities');
 const sms = require('./sms');
+const demo = require('./demo');
 const schedule = require('./schedule');
 const { labelsFor } = require('./triage');
 const config = require('./config');
+const transport = require('./transport');
 const { local } = require('./phone');
 
 const DEDUPE_MS = 5 * 60 * 1000;
@@ -27,11 +29,20 @@ function chooseFacility(db, mother, lat, lng) {
 }
 
 function createAlert(db, { mother, symptoms = ['sos'], lat, lng, channel }) {
+  // Demo accounts get the full screen but nothing is stored or sent: no real facility, contact or driver is contacted.
+  if (demo.isDemoPhone(mother.phone)) {
+    const facility = chooseFacility(db, mother, lat, lng);
+    return { alert: { id: 0, mother_id: mother.id, facility_id: facility ? facility.id : null, level: 'emergency', symptoms, status: 'new', channel, created_at: new Date().toISOString() },
+      facility, notified: false, duplicate: false, demo: true, transport: { asked: 0, providers: [], nearby: [] } };
+  }
   // Duplicate protection: network retries or double taps must not page the facility twice.
   const recent = db
     .prepare("SELECT * FROM alerts WHERE mother_id = ? AND status = 'new' AND created_at > ? ORDER BY id DESC LIMIT 1")
     .get(mother.id, new Date(Date.now() - DEDUPE_MS).toISOString());
-  if (recent) return { alert: shape(recent), facility: facilities.byId(db, recent.facility_id), notified: !!recent.notified, duplicate: true };
+  if (recent) {
+    const asked = transport.forAlert(db, recent.id).length;
+    return { alert: shape(recent), facility: facilities.byId(db, recent.facility_id), notified: !!recent.notified, duplicate: true, transport: { asked, providers: [], nearby: [] } };
+  }
 
   const facility = chooseFacility(db, mother, lat, lng);
   const { lastInsertRowid } = db
@@ -59,15 +70,26 @@ function createAlert(db, { mother, symptoms = ['sos'], lat, lng, channel }) {
       `MamaSafe: ${who} (${mother.phone}) may need urgent help. Please check on her${facility ? ` and help her get to ${facility.name}` : ''}.`,
       'alert-contact');
   }
+  // Ask the nearest registered drivers to collect her. Never allowed to stop the confirmations below.
+  let ride = { asked: 0, providers: [], nearby: [] };
+  try {
+    ride = transport.dispatch(db, {
+      alert: { id }, facility, lat: facilities.hasCoords(lat, lng) ? lat : undefined, lng: facilities.hasCoords(lat, lng) ? lng : undefined,
+      area: facility ? facility.area : null, facilityId: facility ? facility.id : null
+    });
+  } catch (e) { console.error('transport dispatch failed', e); }
   const call = facility ? facilities.bestPhone(facility) : null;
   let msg;
   if (facility && notified) msg = `MamaSafe: ALERT SENT. ${facility.name} has been told. Go there now if you can.`;
   else if (facility) msg = `MamaSafe: go to ${facility.name} now${call ? ', tel ' + local(call) : ''}. We could not message them, so please call.`;
   else msg = 'MamaSafe: go to the nearest health facility now.';
-  sms.send(db, mother.phone, `${msg} Call ${config.emergencyNumber} if worse.`, 'alert-mother');
+  const rideMsg = ride.asked
+    ? ` We asked ${ride.asked} nearby driver${ride.asked > 1 ? 's' : ''} to come to you. You will get an SMS when one accepts.`
+    : '';
+  sms.send(db, mother.phone, `${msg}${rideMsg} Call ${config.emergencyNumber} if worse.`, 'alert-mother');
 
   const row = db.prepare('SELECT * FROM alerts WHERE id = ?').get(id);
-  return { alert: shape(row), facility, notified, duplicate: false };
+  return { alert: shape(row), facility, notified, duplicate: false, transport: ride };
 }
 
 function shape(row) {
@@ -87,12 +109,15 @@ function listForDashboard(db, { status, facilityId, limit = 100 } = {}) {
   if (status) { where.push('a.status = ?'); args.push(status); }
   if (facilityId) { where.push('a.facility_id = ?'); args.push(facilityId); }
   const rows = db.prepare(`
-    SELECT a.*, m.name AS mother_name, m.phone AS mother_phone, m.lmp AS lmp, m.contact_phone AS contact_phone,
+    SELECT a.*, m.name AS mother_name, m.phone AS mother_phone, m.lmp AS lmp, m.contact_phone AS contact_phone, m.contact_verified_at AS contact_verified_at,
            f.name AS facility_name, f.area AS facility_area, f.phone AS facility_phone, f.emergency_phone AS facility_emergency_phone, f.toll_free AS facility_toll_free
     FROM alerts a JOIN mothers m ON m.id = a.mother_id LEFT JOIN facilities f ON f.id = a.facility_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY (a.status = 'new') DESC, a.id DESC LIMIT ?`).all(...args, limit);
-  return rows.map((r) => ({ ...shape(r), weeks: schedule.gestation(r.lmp).weeks, symptomLabels: labelsFor(JSON.parse(r.symptoms)) }));
+  return rows.map((r) => ({
+    ...shape(r), weeks: schedule.gestation(r.lmp).weeks, symptomLabels: labelsFor(JSON.parse(r.symptoms)),
+    contact_verified: !!r.contact_verified_at, transport: transport.forAlert(db, r.id)
+  }));
 }
 
 module.exports = { createAlert, acknowledge, listForDashboard, chooseFacility };

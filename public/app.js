@@ -72,7 +72,7 @@
     if (f.phone) b.push(`<a class="btn" href="${telHref(f.phone)}">Call ${esc(fmtPhone(f.phone))}</a>`);
     if (f.emergency_phone) b.push(`<a class="btn emerg" href="${telHref(f.emergency_phone)}">Emergency ${esc(fmtPhone(f.emergency_phone))}</a>`);
     if (f.toll_free) b.push(`<a class="btn tf" href="${telHref(f.toll_free)}">Toll-free ${esc(fmtPhone(f.toll_free))}</a>`);
-    let html = b.length ? `<div class="row">${b.join('')}</div>` : `<p class="muted warn">No phone number on file for this facility. In an emergency call ${esc(cfg.emergencyNumber)}.</p>`;
+    let html = b.length ? `<div class="row">${b.join('')}</div>` : `<p class="muted warn nophone">No phone on file. In an emergency, call ${esc(cfg.emergencyNumber)}.</p>`;
     if (b.length && f.contact_confidence === 'low') html += '<p class="muted warn">This number comes from an older or unofficial source and may have changed.</p>';
     return html;
   }
@@ -98,15 +98,17 @@
   const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
   const isoDaysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
-  function show(html) {
+  function show(html, keep) {
     if (mapHandle) { mapHandle.destroy(); mapHandle = null; }
     main.innerHTML = html;
+    if (keep) return;
     main.focus({ preventScroll: true });
     window.scrollTo(0, 0);
   }
 
   function setNav() {
     nav.hidden = !(me && me.registered);
+    const db_ = $('#demobar'); if (db_) db_.hidden = !(me && me.demo);
     nav.querySelectorAll('button').forEach((b) => {
       if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
@@ -122,6 +124,7 @@
     view = v;
     say('');
     setNav();
+    main.classList.add('enter'); setTimeout(() => main.classList.remove('enter'), 400);
     try {
       if (v === 'auth') return renderAuth();
       if (v === 'tour') return renderTour(0);
@@ -130,6 +133,8 @@
       if (v === 'home') return renderHome();
       if (v === 'visits') return renderVisits();
       if (v === 'sos') return renderSos();
+      if (v === 'bag') return renderBag();
+      if (v === 'chat') return renderChat();
       if (v === 'check') return await renderCheck();
       if (v === 'care') return await renderCare();
     } catch (e) {
@@ -142,8 +147,9 @@
   function renderAuth() {
     nav.hidden = true;
     if (auth.step === 'phone') {
-      show(`<div class="welcome"><div class="mark">${svg(ICON.heart)}</div>
-        <h1>Welcome to MamaSafe</h1>
+      show(`<div class="welcome"><img class="mark" src="/logo.svg" alt="" width="104" height="104">
+        <div class="wordmark">Mama<span>Safe</span></div><p class="tagline">Safe motherhood, every step</p>
+        <h1>Welcome</h1>
         <p class="muted" style="font-size:16px;margin:0">Visit reminders, a danger-sign check and one-tap emergency alerts, all in your pocket.</p></div>
         <form id="f" class="card" style="margin-top:20px"><label for="phone" style="margin-top:0">Your phone number</label>
         <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required>
@@ -160,12 +166,19 @@
         const btn = $('#f button'); btn.disabled = true;
         try {
           const r = await api('/api/otp/request', { method: 'POST', body: { phone: $('#phone').value } });
-          auth = { step: 'code', phone: r.phone, devCode: r.devCode };
+          auth = { step: 'code', phone: r.phone, devCode: r.devCode, demo: !!r.demo };
           renderAuth();
         } catch (err) { say(err.message, true); btn.disabled = false; }
       };
     } else {
-      show(`<h1>Enter your code</h1>
+      show(auth.demo
+        ? `<h1>Demo access</h1>
+        <p class="muted">This is a demo number, so no SMS is sent. Enter the developer access code you were given.</p>
+        <form id="f"><label for="code">Developer access code</label>
+        <input id="code" type="password" autocomplete="off" autocapitalize="off" required>
+        <button class="full" type="submit">Continue</button>
+        <button class="full ghost" type="button" id="back">Use a different number</button></form>`
+        : `<h1>Enter your code</h1>
         <p class="muted">We sent a 6-digit code by SMS to ${esc(auth.phone)}.</p>
         ${auth.devCode ? `<p class="muted"><b>Development mode:</b> your code is ${esc(auth.devCode)}.</p>` : ''}
         <form id="f"><label for="code">6-digit code</label>
@@ -288,38 +301,236 @@
     if (view === 'home') { say('We have not received your approval yet. If you entered your PIN, you will get an SMS when it is confirmed.'); btn.disabled = false; }
   }
 
+  // ---------- Ask MamaSafe ----------
+  let chatLog = [];
+  function renderChat() {
+    const fac = me.facility && bestPhone(me.facility);
+    const act = (a, i) => {
+      if (a === 'sos') return '<button type="button" class="danger" data-act="sos">Press SOS</button>';
+      if (a === 'call') return `<a class="btn ghost" href="${telHref(fac || cfg.emergencyNumber)}">Call ${fac ? 'my clinic' : esc(cfg.emergencyNumber)}</a>`;
+      if (a === 'check') return '<button type="button" class="ghost" data-act="check">Check my symptoms</button>';
+      if (a === 'bag') return '<button type="button" class="ghost" data-act="bag">Hospital bag list</button>';
+      if (a === 'visits') return '<button type="button" class="ghost" data-act="visits">My visits</button>';
+      if (a === 'home') return '<button type="button" class="ghost" data-act="home">Go to Home</button>';
+      if (a === 'escalate') return `<button type="button" data-act="escalate" data-i="${i}">Send to my clinic</button>`;
+      return '';
+    };
+    const bubble = (m, i) => m.role === 'me'
+      ? `<div class="bub me">${esc(m.text)}</div>`
+      : (() => {
+        const btns = (m.acts || []).map((a) => act(a, i)).join('') + (m.kind === 'answer' && m.title && !(m.acts || []).includes('escalate') ? `<button type="button" class="link" data-act="escalate" data-i="${i}">Not what I asked? Send to my clinic</button>` : '');
+        return `<div class="bub bot ${m.kind || ''}">${m.title ? `<small>${esc(m.title)}</small>` : ''}<div>${esc(m.text)}</div>${btns ? `<div class="acts">${btns}</div>` : ''}</div>`;
+      })();
+    const draw = () => {
+      $('#chatlog').innerHTML = chatLog.map(bubble).join('');
+      const el = $('#chatlog'); el.scrollTop = el.scrollHeight;
+      window.scrollTo(0, document.body.scrollHeight);
+    };
+    show(`<div class="chat"><h1>Ask MamaSafe</h1>
+      <p class="muted" style="margin:0 0 8px">An automated helper with reviewed answers. It is not a doctor and cannot diagnose. In an emergency press SOS or call ${esc(cfg.emergencyNumber)}.</p>
+      <div id="chatlog" class="chatlog" aria-live="polite"></div>
+      <div id="chips" class="chips"></div>
+      <form id="cf" class="chatform"><label for="cq" class="sr">Your question</label><input id="cq" type="text" maxlength="300" autocomplete="off" placeholder="Type your question"><button type="submit" aria-label="Send">${svg('<path d="M4 12 20 4l-4 16-4-7z"/>')}</button></form></div>`);
+    if (!chatLog.length) chatLog.push({ role: 'bot', kind: 'answer', text: `Hello${me.mother.name ? ' ' + me.mother.name : ''}. Ask me about your visits, food, tablets, common discomforts, or what to do in an emergency.`, acts: [] });
+    draw();
+    api('/api/chat/suggestions').then((d) => { if (chatLog.length < 3 && $('#chips')) { $('#chips').innerHTML = d.suggestions.map((t) => `<button type="button" class="chip">${esc(t)}</button>`).join(''); } }).catch(() => {});
+    const ask = async (text) => {
+      text = text.trim(); if (!text) return;
+      chatLog.push({ role: 'me', text }); draw(); $('#cq').value = ''; $('#chips').innerHTML = '';
+      try {
+        const r = await api('/api/chat', { method: 'POST', body: { text } });
+        chatLog.push({ role: 'bot', kind: r.kind, title: r.title, text: r.text, acts: r.acts, asked: text });
+      } catch (e) {
+        if (e.status === 401) return signOut();
+        chatLog.push({ role: 'bot', kind: 'unknown', text: 'I could not answer just now. Please check your connection. If it is urgent, call ' + cfg.emergencyNumber + '.', acts: ['call'] });
+      }
+      draw();
+    };
+    $('#cf').onsubmit = (e) => { e.preventDefault(); ask($('#cq').value); };
+    $('#chips').onclick = (e) => { if (e.target.classList.contains('chip')) ask(e.target.textContent); };
+    $('#chatlog').onclick = async (e) => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      const a = b.dataset.act;
+      if (a === 'sos') return go('sos');
+      if (a === 'check' || a === 'bag' || a === 'visits' || a === 'home') return go(a);
+      if (a === 'escalate') {
+        const m = chatLog[Number(b.dataset.i)]; const q = (m && m.asked) || '';
+        b.disabled = true;
+        try {
+          const r = await api('/api/chat/escalate', { method: 'POST', body: { text: q } });
+          const callLine = r.facility && r.facility.phone ? ` You can also call ${fmtPhone(r.facility.phone)}.` : '';
+          chatLog.push({ role: 'bot', kind: 'answer', acts: [], text: r.demo ? 'Demo mode: your question was not sent to any clinic.'
+            : r.notified ? `Your question was sent to ${r.facility ? r.facility.name : 'your clinic'}. A health worker should get back to you.${callLine}`
+              : `I saved your question, but I could not text your clinic.${callLine || ' Please call your clinic.'}` });
+        } catch (err) { say(err.message, true); b.disabled = false; return; }
+        draw();
+      }
+    };
+  }
+
+  // ---------- baby size, kick counter, hospital bag ----------
+  // Rough, widely used size comparisons (emoji chosen to show on older Android phones). Not medical measurements.
+  const BABY = [[8, '🍇', 'a grape', 1.6], [10, '🍓', 'a strawberry', 3.1], [12, '🍋', 'a lime', 5.4], [14, '🍋', 'a lemon', 8.7], [16, '🥑', 'an avocado', 11.6],
+    [18, '🍠', 'a sweet potato', 14], [20, '🍌', 'a banana', 25], [22, '🌽', 'a corn cob', 28], [24, '🥒', 'a cucumber', 30], [26, '🥦', 'a head of broccoli', 35],
+    [28, '🍆', 'an aubergine', 37], [30, '🍈', 'a small melon', 40], [32, '🍍', 'a pineapple', 42], [34, '🍈', 'a cantaloupe', 45], [36, '🍉', 'a small watermelon', 47],
+    [38, '🍉', 'a watermelon', 50], [40, '🍉', 'a watermelon', 51]];
+  function babySize(w) {
+    if (w < 8) return { emoji: '🌱', name: 'a tiny bean', cm: null };
+    let r = BABY[0];
+    for (const b of BABY) if (w >= b[0]) r = b;
+    return { emoji: r[1], name: r[2], cm: r[3] };
+  }
+  function babyCard(weeks) {
+    const b = babySize(weeks);
+    return `<div class="card baby"><div class="fruit" aria-hidden="true">${b.emoji}</div>
+      <div><h3>Your baby this week</h3><div class="when">About the size of ${b.name}</div>
+      ${b.cm ? `<div class="muted">Around ${b.cm} cm long. Every baby is different.</div>` : '<div class="muted">Everything is just starting to form.</div>'}</div></div>`;
+  }
+
+  const BAG = [
+    ['For papers and money', [['card', 'Antenatal card and any test results'], ['id', 'Your ID and the number of your emergency contact, written down'], ['money', 'Money for transport and small costs'], ['phone', 'Phone and charger']]],
+    ['For you', [['kanga', 'Two clean kangas or lesus'], ['pads', 'Sanitary pads'], ['soap', 'Soap and a towel'], ['clothes', 'Change of clothes and warm wrap'], ['water', 'Water and a snack']]],
+    ['For baby', [['wrap', 'Soft blanket or wrap'], ['bclothes', 'Baby clothes, a hat and socks'], ['cloths', 'Clean soft cloths']]]
+  ];
+  function renderBag() {
+    const load = () => { try { return JSON.parse(store.get('ms_bag') || '{}'); } catch { return {}; } };
+    const total = BAG.reduce((a, g) => a + g[1].length, 0);
+    const paint = () => {
+      const got = load(), have = Object.keys(got).filter((k) => got[k]).length;
+      show(`<button type="button" class="link back" id="bback">← Back</button>
+        <h1>Hospital bag</h1>
+        <p class="muted">Pack by week 34 so you are ready if baby comes early. Ask your clinic if they want anything else.</p>
+        <div class="meter dark" aria-hidden="true"><span style="width:${Math.round((have / total) * 100)}%"></span></div>
+        <p class="muted"><b>${have} of ${total}</b> packed</p>
+        ${BAG.map(([title, items]) => `<div class="card"><h3 style="margin:0 0 6px">${title}</h3>${items.map(([id, label]) => `<label class="check"><input type="checkbox" data-bag="${id}" ${got[id] ? 'checked' : ''}> ${label}</label>`).join('')}</div>`).join('')}
+        <div class="card"><h3 style="margin:0 0 4px">Bag ready? What next</h3><p class="muted" style="margin:0 0 10px">Three things that make a big difference on the day.</p>
+        <button type="button" class="ghost full" data-next="home">Save and confirm your emergency contact</button>
+        <button type="button" class="ghost full" data-next="care" style="margin-top:8px">Find your hospital and its phone number</button>
+        <button type="button" class="ghost full" data-next="chat" style="margin-top:8px">Ask MamaSafe a question</button></div>`);
+      document.querySelectorAll('[data-next]').forEach((b) => { b.onclick = () => go(b.dataset.next); });
+      $('#bback').onclick = () => go('home');
+      document.querySelectorAll('[data-bag]').forEach((c) => { c.onchange = () => { const g = load(); g[c.dataset.bag] = c.checked; store.set('ms_bag', JSON.stringify(g)); const h = Object.keys(g).filter((k) => g[k]).length; document.querySelector('.meter span').style.width = Math.round((h / total) * 100) + '%'; document.querySelector('.meter + p b').textContent = h + ' of ' + total; }; });
+    };
+    paint();
+  }
+
   // ---------- home ----------
+  function homeRing(pct, tri, weeks) {
+    const R = 82, C = 2 * Math.PI * R, a = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+    const kx = 100 + R * Math.cos(a), ky = 100 + R * Math.sin(a);
+    return `<div class="ring" role="img" aria-label="Week ${weeks} of 40, ${pct} percent of pregnancy">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f9988f"/><stop offset="1" stop-color="#ee6d67"/></linearGradient></defs>
+        <circle cx="100" cy="100" r="96" fill="#fff" opacity=".7"/>
+        <circle cx="100" cy="100" r="${R}" fill="none" stroke="#ffd9d2" stroke-width="16"/>
+        <circle cx="100" cy="100" r="${R}" fill="none" stroke="url(#rg)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 100 100)"/>
+        <circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="11" fill="#fff" stroke="#ee6d67" stroke-width="4"/>
+      </svg>
+      <div class="mid"><small>You are in your</small><div class="stage">${tri}</div><small>Pregnancy</small><div class="big">Week ${weeks}</div></div></div>`;
+  }
+
+  function weekStrip(nextDate) {
+    const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    let out = '';
+    for (let k = 0; k < 7; k++) {
+      const d = new Date(mon); d.setDate(mon.getDate() + k);
+      const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const cls = (d.getTime() === now.getTime() ? ' today' : '') + (nextDate && String(nextDate).slice(0, 10) === iso ? ' visit' : '');
+      out += `<div class="day${cls}"><span>${names[d.getDay()]}</span><b>${d.getDate()}</b></div>`;
+    }
+    return `<div class="week" aria-label="This week">${out}</div>`;
+  }
+
   function renderHome() {
     const g = me.gestation, pct = Math.min(100, Math.round((g.totalDays / 280) * 100));
     const next = me.next;
-    const tri = g.weeks < 13 ? 'FIRST TRIMESTER' : g.weeks < 28 ? 'SECOND TRIMESTER' : 'THIRD TRIMESTER';
+    const tri = g.weeks < 13 ? 'First trimester' : g.weeks < 28 ? 'Second trimester' : 'Third trimester';
     const left = Math.max(0, 40 - g.weeks);
-    show(`<div class="hero"><div class="sub">Hello${me.mother.name ? ', ' + esc(me.mother.name) : ''}</div>
-      <div class="big">Week ${g.weeks}</div>
-      <div class="bar" role="img" aria-label="${pct} percent of pregnancy"><span style="width:${pct}%"></span></div>
-      <div class="sub">Due about ${fmtDate(me.edd)}${left ? ' · ' + left + (left === 1 ? ' week' : ' weeks') + ' to go' : ''}</div>
-      <span class="tri">${tri}</span></div>
-      <div class="card">${next
-        ? `<div class="muted"><b>NEXT VISIT · ${next.no} OF 8</b></div><div style="font-size:20px;font-weight:800">${fmtDate(next.date)}</div><div class="muted">${me.facility ? esc(me.facility.name) : 'No facility chosen yet'}</div>${me.facility && bestPhone(me.facility) ? `<a class="btn ghost" style="margin-top:8px" href="${telHref(bestPhone(me.facility))}">Call ${esc(fmtPhone(bestPhone(me.facility)))}</a>` : ''}`
-        : '<b>No more visits planned.</b> Your baby is due soon. Text or tap SOS if you need urgent help.'}</div>
-      <div class="danger-note"><b>Know the danger signs.</b> Heavy bleeding, fits, severe headache with blurred vision, or baby moving much less: go to a health facility straight away and press SOS.</div>
+    const hr = new Date().getHours();
+    const hello = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+    const done = (me.visits || []).filter((v) => v.status === 'past').length;
+    const days = g.days != null ? g.days : g.totalDays % 7;
+    const fac = me.facility;
+    show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
+        <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
+      ${weekStrip(next && next.date)}
+      ${homeRing(pct, tri, g.weeks)}
+      <div class="bubbles">
+        <div class="bubble"><small>Due</small><b>${esc(new Date(me.edd).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))}</b></div>
+        <div class="bubble"><small>To go</small><b>${left} ${left === 1 ? 'week' : 'weeks'}</b></div>
+        <div class="bubble"><small>Visits done</small><b>${done} of 8</b></div>
+      </div>
+      <button type="button" class="askcard" data-go="chat"><span class="ico">${svg(ICON.chat)}</span><span><b>Ask MamaSafe</b><small>Questions about your pregnancy? Get an answer, or send it to your clinic.</small></span></button>
+      ${babyCard(g.weeks)}
+      <div class="rail">
+        <div class="tile fill">${next
+          ? `<h3>Next visit ${next.no} of 8</h3><div class="when">${fmtDate(next.date)}</div><div>${fac ? esc(fac.name) : 'No facility chosen yet'}</div><div class="meter" aria-hidden="true"><span style="width:${Math.round((next.no / 8) * 100)}%"></span></div>${fac && bestPhone(fac) ? `<a class="btn light" href="${telHref(bestPhone(fac))}">Call ${esc(fmtPhone(bestPhone(fac)))}</a>` : ''}`
+          : '<h3>No more visits planned</h3><div>Your baby is due soon. Text or tap SOS if you need urgent help.</div>'}</div>
+        <div class="tile soft"><h3>Know the danger signs</h3><div>Heavy bleeding, fits, severe headache with blurred vision, or baby moving much less: go to a health facility straight away and press SOS.</div></div>
+      </div>
       <div class="quick">
         <button type="button" data-go="check"><span class="ico">${svg(ICON.pulse)}</span>Check my symptoms<small>Not feeling right?</small></button>
         <button type="button" data-go="care"><span class="ico">${svg(ICON.pin)}</span>Find a hospital<small>Nearest, with phone numbers</small></button>
         <button type="button" data-go="visits"><span class="ico">${svg(ICON.calendar)}</span>My 8 visits<small>Dates and reminders</small></button>
+        <button type="button" data-go="bag"><span class="ico">${svg(ICON.shield)}</span>Hospital bag<small>A checklist to pack</small></button>
         <button type="button" data-go="guide"><span class="ico">${svg(ICON.book)}</span>User guide<small>How MamaSafe works</small></button>
       </div>
       ${payCard()}
       ${basicPhoneCard()}
+      ${contactCard()}
       <h2>Settings</h2>
       <div class="card"><label class="check"><input id="optin" type="checkbox" ${me.mother.smsOptin ? 'checked' : ''}> SMS visit reminders</label>
       <button class="ghost full" id="out" type="button">Sign out</button></div>`);
     wirePay();
+    wireContact();
     document.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => (b.dataset.go === 'guide' ? openGuide() : go(b.dataset.go)); });
     $('#optin').onchange = async (e) => {
       try { me = await api('/api/me', { method: 'PATCH', body: { smsOptin: e.target.checked } }); say('Saved.'); } catch (err) { say(err.message, true); }
     };
     $('#out').onclick = signOut;
+  }
+
+  // Emergency contact: save the number, text it a code, and type the code in. Proves the number is right and that
+  // the person agrees. Alerts still go to an unconfirmed contact, because an emergency must not wait on this.
+  function contactCard() {
+    const m = me.mother;
+    const state = !m.contactPhone ? '' : m.contactVerified ? ' <span class="pill mild">CONFIRMED</span>' : ' <span class="pill urgent">NOT CONFIRMED</span>';
+    const note = !m.contactPhone ? 'Someone we text if you press SOS.'
+      : m.contactVerified ? 'They will be texted if you press SOS.'
+        : 'Press the button and we text a code to their phone. Ask them for it. It proves the number is right and that they agree.';
+    return `<h2>Emergency contact${state}</h2>
+      <div class="card"><div class="muted">${note}</div>
+        <label for="cphone">Their phone number</label>
+        <input id="cphone" type="tel" inputmode="tel" autocomplete="off" value="${esc(m.contactPhone ? fmtPhone(m.contactPhone) : '')}" placeholder="0772 123 456">
+        <button class="ghost full" id="csave" type="button">Save number</button>
+        ${m.contactPhone && !m.contactVerified ? `<button class="full" id="csend" type="button">Send code to their phone</button>
+        <div id="cverify" hidden><label for="ccode">Code from their phone</label>
+          <input id="ccode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits">
+          <button class="full" id="cconfirm" type="button">Confirm</button></div>
+        <p class="muted" id="chint"></p>` : ''}
+      </div>`;
+  }
+  function wireContact() {
+    const save = $('#csave');
+    if (!save) return;
+    save.onclick = async () => {
+      try { me = await api('/api/me', { method: 'PATCH', body: { contactPhone: $('#cphone').value } }); say('Saved.'); renderHome(); } catch (err) { say(err.message, true); }
+    };
+    const send = $('#csend');
+    if (send) send.onclick = async () => {
+      send.disabled = true;
+      try {
+        const r = await api('/api/contact/request', { method: 'POST' });
+        $('#cverify').hidden = false;
+        $('#chint').textContent = `A code was texted to ${fmtPhone(r.sentTo)}. Ask them for it.` + (r.devCode ? ` (development code: ${r.devCode})` : '');
+      } catch (err) { say(err.message, true); } finally { send.disabled = false; }
+    };
+    const confirm = $('#cconfirm');
+    if (confirm) confirm.onclick = async () => {
+      try { me = await api('/api/contact/verify', { method: 'POST', body: { code: $('#ccode').value } }); say('Emergency contact confirmed.'); renderHome(); } catch (err) { say(err.message, true); }
+    };
   }
 
   // ---------- visits ----------
@@ -369,7 +580,7 @@
     show(`<div class="sosview"><h1>Emergency help</h1>
       <p class="muted">Use this if you or your baby are in danger, for example heavy bleeding, fits, or severe pain.</p>
       <button class="sosbtn danger" id="sos" type="button">Send emergency alert</button>
-      <div class="card"><b>One tap will</b><div class="muted" style="color:var(--muted)">Tell your health facility, with your location if your phone shares it. Tell your emergency contact. Text you a confirmation.</div></div>
+      <div class="card"><b>One tap will</b><div class="muted" style="color:var(--muted)">Tell your health facility, with your location if your phone shares it. Ask nearby drivers to collect you. Tell your emergency contact. Text you a confirmation.</div></div>
       <a class="btn full" style="background:#fff;color:#8e1b1b" href="tel:${esc(cfg.emergencyNumber)}">Or call ${esc(cfg.emergencyNumber)} now</a></div>`);
     $('#sos').onclick = () => sendAlert(['sos']);
   }
@@ -381,13 +592,25 @@
       ? `<div class="card"><b>${esc(f.name)} has been told.</b></div>`
       : `<div class="card"><b>${f ? 'Go to ' + esc(f.name) + '.' : 'Go to the nearest health facility.'}</b><div class="muted">We could not text them, so please call${call ? '' : ' ' + esc(cfg.emergencyNumber)}.</div></div>`;
     const contact = me && me.mother && me.mother.contactPhone ? '<div class="card"><b>Your emergency contact has been told.</b></div>' : '';
-    show(`<div class="sosview"><h1>${r.notified ? 'Alert sent' : 'Please call now'}</h1><p class="muted">Go to the facility now if you can. Keep your phone with you.</p>
-      ${told}${contact}
+    show(`<div class="sosview"><h1>${r.demo ? 'Demo alert' : r.notified ? 'Alert sent' : 'Please call now'}</h1>${r.demo ? '<div class="card"><b>Demo mode.</b> Nothing was sent. No real clinic, driver or contact was contacted.</div>' : ''}<p class="muted">Go to the facility now if you can. Keep your phone with you.</p>
+      ${told}${rideHtml(r.transport)}${contact}
       ${f && f.emergency_phone ? `<a class="btn full" style="background:#fff;color:#8e1b1b" href="${telHref(f.emergency_phone)}">Call emergency line ${esc(fmtPhone(f.emergency_phone))}</a>` : ''}
       ${call ? `<a class="btn full" style="background:#fff;color:#8e1b1b" href="${telHref(call)}">Call the facility ${esc(fmtPhone(call))}</a>` : ''}
       ${f && f.toll_free ? `<a class="btn full ghost" style="border-color:#fff;color:#fff" href="${telHref(f.toll_free)}">Toll-free ${esc(fmtPhone(f.toll_free))}</a>` : ''}
       ${f ? `<a class="btn full ghost" style="border-color:#fff;color:#fff" target="_blank" rel="noopener" href="${esc(dirUrl(f))}">Directions</a>` : ''}
       <a class="btn full ghost" style="border-color:#fff;color:#fff" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a></div>`);
+  }
+
+  // Transport: who was asked to collect her, and drivers she can call herself. Numbers come from staff-registered
+  // drivers only; nothing is invented. The server texts the nearest drivers, so she does not have to wait for a call.
+  function rideHtml(t) {
+    t = t || { asked: 0, nearby: [] };
+    const head = t.asked
+      ? `<div class="card"><b>${t.asked} nearby driver${t.asked > 1 ? 's were' : ' was'} asked to come to you.</b><div class="muted">You will get an SMS when one accepts. You can also call one now.</div></div>`
+      : `<div class="card"><b>Need a ride?</b><div class="muted">${t.nearby.length ? 'No driver has been asked yet. Call one below.' : 'We have no registered driver near you. Ask a neighbour or call ' + esc(cfg.emergencyNumber) + '.'}</div></div>`;
+    const calls = (t.nearby || []).slice(0, 3).map((p) =>
+      `<a class="btn full ghost" href="${telHref(p.phone)}">Call ${esc(p.name)} · ${esc(p.kindLabel)}${p.distanceKm != null ? ' · ' + esc(p.distanceKm) + ' km' : ''}</a>`).join('');
+    return head + calls;
   }
 
   // If the app cannot reach the server, SMS and calls still work without data.
@@ -407,7 +630,7 @@
     { art: 'pulse', title: () => 'Not feeling right?', text: 'Open Check, tick what you feel, and MamaSafe tells you what to do: go now, get checked today, or mention it at your next visit.',
       list: ['It is a guide, not a diagnosis', 'If something feels wrong, go to a health facility even if it is not listed'] },
     { art: 'alert', red: true, title: () => 'In an emergency, press SOS', text: 'The red SOS button is always in the middle of the bottom bar.',
-      list: ['Alerts your health facility, with your location if you allow it', 'Texts your emergency contact', 'Shows phone numbers to call straight away', 'Always free. Always works, even if you have not paid'] }
+      list: ['Alerts your health facility, with your location if you allow it', 'Texts your emergency contact', 'Asks nearby drivers to collect you', 'Shows phone numbers to call straight away', 'Always free. Always works, even if you have not paid'] }
   ];
 
   function renderTour(i) {
@@ -464,9 +687,9 @@
         <tr><td><span class="pill mild">MILD</span></td><td>Common in pregnancy. Tell the midwife at your next visit, and check again if you get worse.</td></tr></table>
         <p class="muted">This is a guide, not a diagnosis. If something feels wrong, go to a health facility even if it is not on the list.</p>`)}
       ${sec('alert', 'SOS (emergency alert)', `<p>The red <b>SOS</b> button sits in the middle of the bottom bar. Tap it, then tap <b>Send emergency alert</b>. MamaSafe will:</p>
-        <ul><li>tell your health facility (with your location if your phone shares it)</li><li>text your emergency contact</li><li>text you a confirmation</li></ul>
+        <ul><li>tell your health facility (with your location if your phone shares it)</li><li>ask nearby registered drivers (ambulance, boda, taxi) to collect you; the first to accept texts you</li><li>text your emergency contact</li><li>text you a confirmation</li></ul>
         <p>If the facility has no mobile number for alerts, the app tells you honestly: <b>"We could not text them, please call"</b> and shows every phone number we hold. Press the call buttons.</p>
-        <div class="callout red"><b>SOS does not send an ambulance.</b> Go to the facility if you can, and call ${esc(em)} if you cannot get there. Keep your phone with you.</div>
+        <div class="callout red"><b>SOS cannot promise a vehicle.</b> It asks registered drivers near you, but nobody is guaranteed to come. Go to the facility if you can, and call ${esc(em)} if you cannot get there. Keep your phone with you.</div>
         <p class="muted">SOS, the symptom check and the hospital finder are always free for everyone.</p>`)}
       ${sec('pin', 'Care (find a hospital)', `<p>Works even before you sign in. Tap <b>Use my location</b> to sort by distance, or search by district or hospital name. Filter by <i>Hospitals</i>, <i>Health centres</i>, <i>Clinics</i> or <i>Open 24h</i>.</p>
         <p>Each place has <b>tap-to-call</b> buttons for every number we hold, a <b>Directions</b> link that opens Google Maps, and a map pin that matches the number on the list. Tap a pin to see the details.</p>

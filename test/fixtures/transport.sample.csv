@@ -1,0 +1,6 @@
+name,kind,phone,area,lat,lng,radius_km,facility_code,notes
+SAMPLE Ambulance (Referral Hospital),ambulance,0700000101,Sample Area A,0.3300,32.6100,40,SHOSP,Fake number for tests
+SAMPLE Boda rider near stage 1,boda,0700000102,Sample Area A,0.3490,32.5840,8,,Fake number for tests
+SAMPLE Taxi driver,taxi,0700000103,Sample Area A,0.3600,32.6000,25,,Fake number for tests
+SAMPLE Boda rider (Area B),boda,0700000104,Sample Area B,0.4130,32.6410,8,,Fake number for tests
+SAMPLE Volunteer without saved base,volunteer,0700000105,Sample Area A,,,15,,Fake number for tests

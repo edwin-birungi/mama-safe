@@ -23,13 +23,15 @@
         <li><b>Respond, then press "I am acting on this"</b><span class="muted">This marks the alert acknowledged, turns it green and records who and when. You can also reply <code>ACK &lt;alert number&gt;</code> by SMS from the facility's alert mobile.</span></li>
         <li><b>Watch for the red warning</b><span class="muted">If a card says <i>The facility was NOT sent an SMS</i>, nobody was told by text. Phone the facility or the mother straight away.</span></li>
       </ol>
+      <p class="muted"><b>Transport tab:</b> the drivers who can be asked to collect a mother. Alerts show who was asked and who accepted. Keep numbers current: a wrong number means nobody comes.</p>
+      <p class="muted"><b>Questions tab:</b> questions mothers could not get answered in the app. Call or text her back, then press Done. Each one also arrives by SMS on the facility alert phone.</p>
       <p class="muted"><b>Messages tab:</b> every SMS the system sent or tried to send, with its status. Use it to check that reminders and alerts really went out.</p>
       <div class="callout red"><b>An alert nobody reads is dangerous.</b> Decide who watches this page and the alert phone in every shift, and what happens if an alert is not acknowledged. Escalation is not automatic.</div>
     </div>
   </details>
 
   <div class="bar2">
-    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button><button id="tab-msgs" aria-pressed="false">Messages</button></div>
+    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button><button id="tab-transport" aria-pressed="false">Transport</button><button id="tab-questions" aria-pressed="false">Questions</button><button id="tab-msgs" aria-pressed="false">Messages</button></div>
     <label for="fac" class="muted" style="margin:0">Facility</label>
     <select id="fac"><option value="">All facilities</option></select>
     <button id="sound" class="ghost" type="button" aria-pressed="false">Sound alert: off</button>
@@ -37,6 +39,24 @@
   <div id="stats" class="stats" hidden></div>
   <p id="err" class="warn" hidden></p>
   <section id="alerts" aria-live="polite"></section>
+  <section id="questions" hidden></section>
+  <section id="transport" hidden>
+    <div class="card">
+      <b>Emergency transport directory</b>
+      <p class="muted">Ambulances, boda riders, taxi drivers and volunteers who agreed to be contacted. When a mother sends an alert, the nearest ones get an SMS and reply <code>GO &lt;alert number&gt;</code>; the first to reply gets her number. They can text <code>BUSY</code> or <code>AVAILABLE</code> at any time. Only add people who agreed, and use a mobile number that receives SMS. Drivers without a GPS base are only found by district.</p>
+      <form id="tpform" class="tpform" autocomplete="off">
+        <input type="text" id="tp-name" placeholder="Name" required maxlength="60">
+        <select id="tp-kind" aria-label="Kind"></select>
+        <input id="tp-phone" type="tel" placeholder="Mobile number" required>
+        <input type="text" id="tp-area" placeholder="District">
+        <input type="text" id="tp-lat" inputmode="decimal" placeholder="Base latitude">
+        <input type="text" id="tp-lng" inputmode="decimal" placeholder="Base longitude">
+        <input type="text" id="tp-radius" inputmode="decimal" placeholder="Radius km (15)">
+        <button type="submit">Add driver</button>
+      </form>
+    </div>
+    <div id="tplist"></div>
+  </section>
   <section id="msgs" hidden></section>
 </div>
 <script src="/dashboard.js"></script>

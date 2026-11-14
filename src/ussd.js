@@ -14,6 +14,7 @@ const schedule = require('./schedule');
 const facilities = require('./facilities');
 const mothersSvc = require('./mothers');
 const alerts = require('./alerts');
+const contact = require('./contact');
 const payments = require('./payments');
 const sms = require('./sms');
 const messages = require('./messages');
@@ -35,7 +36,8 @@ function step(st, input, env) {
   switch (st.screen) {
     case 'main':
       if (env.registered) {
-        return { 1: go('visit'), 2: go('unwell1'), 3: go('clinic'), 4: go('sos'), 5: go('area_q', { purpose: 'find' }), ...(env.payDue ? { 6: go('pay') } : {}) }[n] || bad();
+        return { 1: go('visit'), 2: go('unwell1'), 3: go('clinic'), 4: go('sos'), 5: go('area_q', { purpose: 'find' }),
+          ...(env.payDue ? { 6: go('pay') } : {}), ...(env.contactDue ? { 7: go('contact_menu') } : {}) }[n] || bad();
       }
       return { 1: go('reg_lmp'), 2: go('unwell1'), 3: go('area_q', { purpose: 'find' }) }[n] || bad();
     case 'visit':
@@ -43,6 +45,15 @@ function step(st, input, env) {
     case 'fac_detail':
       if (input === '0') return st.screen === 'fac_detail' ? go('fac_list') : go('main');
       return bad();
+    case 'contact_menu':
+      if (input === '0') return go('main');
+      if (n === 1) return { ...st, err: null, action: { type: 'contact_send' } };
+      if (n === 2) return go('contact_code');
+      return bad();
+    case 'contact_code':
+      if (input === '0') return go('contact_menu');
+      if (!/^\d{6}$/.test(input)) return { ...st, err: 'Type the 6-digit code.' };
+      return { ...st, err: null, action: { type: 'contact_verify', code: input } };
     case 'pay':
       if (input === '0') return go('main');
       if (n === 1) return { ...st, err: null, action: { type: 'pay', payer: null } };
@@ -127,7 +138,7 @@ function render(st, env, mother, db) {
   switch (st.screen) {
     case 'main':
       return env.registered
-        ? 'MamaSafe\n1. My next visit\n2. I feel unwell\n3. My health facility\n4. EMERGENCY\n5. Find a hospital' + (env.payDue ? '\n6. Pay fee' : '')
+        ? 'MamaSafe\n1. My next visit\n2. I feel unwell\n3. My health facility\n4. EMERGENCY\n5. Find a hospital' + (env.payDue ? '\n6. Pay fee' : '') + (env.contactDue ? '\n7. Confirm contact' : '')
         : e + 'Welcome to MamaSafe\n1. Register\n2. Check danger signs\n3. Find a hospital';
     case 'visit': {
       const next = schedule.nextVisit(mother.lmp);
@@ -139,6 +150,10 @@ function render(st, env, mother, db) {
       return fac ? facilityScreen(fac, 'Your facility') : 'No facility saved.\n0. Back';
     case 'fac_detail':
       return facilityScreen(facilities.byId(db, st.data.facilityId), 'Facility');
+    case 'contact_menu':
+      return `Emergency contact ${local(mother.contact_phone)}\n1. Send them a code\n2. I have the code\n0. Back`;
+    case 'contact_code':
+      return e + 'Type the 6-digit code your contact received\n0. Back';
     case 'pay':
       return e + `Pay ${config.payments.currency} ${config.payments.fee.toLocaleString('en-US')} to start reminders. A prompt comes to your MTN or Airtel Money phone: enter your PIN.\n1. Pay with this number\n2. Another number\n0. Back`;
     case 'pay_other':
@@ -174,6 +189,7 @@ function alertResult(r, head) {
   const lines = [head];
   if (f && r.notified) lines.push(`${cut(f.name, 40)} has been told.`);
   else if (f) lines.push(`Go to ${cut(f.name, 36)}.${tel ? ' Tel ' + local(tel) + '.' : ''} We could not message them.`);
+  if (r.transport && r.transport.asked) lines.push('Drivers asked to come.');
   lines.push(`Call ${config.emergencyNumber} if worse.`);
   return lines.join('\n');
 }
@@ -186,6 +202,14 @@ function runAction(db, action, st, env, mother, phone) {
     payments.momoPush(db, mother, action.payer).catch(() =>
       sms.send(db, phone, 'MamaSafe: we could not send the payment prompt. Dial again and choose Pay fee to retry.', 'payment'));
     return `A payment prompt is coming to ${local(c.payer)}.\nEnter your mobile money PIN to approve. We will SMS you when it is done.`;
+  }
+  if (action.type === 'contact_send') {
+    const r = contact.requestCode(db, mother);
+    return r.error ? r.error : `Code sent to ${local(mother.contact_phone)}.\nAsk them for it, then dial again, choose 7, then 2.`;
+  }
+  if (action.type === 'contact_verify') {
+    const r = contact.verifyCode(db, mother, action.code);
+    return r.error ? `${r.error}\nDial again, choose 7 to retry.` : 'Contact confirmed. They will be told if you send an alert.';
   }
   if (action.type === 'triage') {
     const result = triage.classify([action.symptom]);
@@ -227,6 +251,7 @@ function handle(db, { phone, text }) {
   const mother = mothersSvc.byPhone(db, p);
   const env = {
     registered: !!mother,
+    contactDue: !!mother && !!mother.contact_phone && !mother.contact_verified_at,
     payDue: !!mother && payments.required() && !payments.hasAccess(db, mother.id),
     hasFacilities: facilities.count(db) > 0,
     searchAreas: (q) => facilities.searchAreas(db, q, 6),

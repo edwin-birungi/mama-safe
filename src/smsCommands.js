@@ -8,6 +8,8 @@ const schedule = require('./schedule');
 const facilities = require('./facilities');
 const mothersSvc = require('./mothers');
 const alerts = require('./alerts');
+const transport = require('./transport');
+const contact = require('./contact');
 const payments = require('./payments');
 const sms = require('./sms');
 const messages = require('./messages');
@@ -52,6 +54,12 @@ function handle(db, { from, text }) {
     const id = Number(args[0]);
     const ok = Number.isInteger(id) && alerts.acknowledge(db, id, `sms:${phone}`);
     return ok ? `MamaSafe: alert #${id} acknowledged. Thank you.` : `MamaSafe: no open alert #${args[0] || ''}.`;
+  }
+
+  // A driver answering a pickup request ("GO 12") or switching availability (BUSY / AVAILABLE).
+  if (cmd === 'GO' || cmd === 'BUSY' || cmd === 'AVAILABLE') {
+    const provider = transport.byPhone(db, phone);
+    if (provider) return transport.handleSms(db, provider, cmd, args);
   }
 
   const mother = mothersSvc.byPhone(db, phone);
@@ -116,6 +124,23 @@ function handle(db, { from, text }) {
       payments.momoPush(db, mother, args[0]).catch(() =>
         sms.send(db, phone, 'MamaSafe: we could not send the payment prompt. Please text PAY to try again.', 'payment'));
       return `MamaSafe: a payment prompt is coming to ${local(c.payer)}. Enter your mobile money PIN to pay ${config.payments.currency} ${config.payments.fee.toLocaleString('en-US')}. Emergency help is always free.`;
+    }
+    case 'CONTACT': {
+      // "CONTACT 0772123456" saves a new emergency contact; "CONTACT" alone re-sends the code. The code goes to THEM.
+      let m = mother;
+      if (args[0]) {
+        const c = normalizePhone(args[0]);
+        if (!c) return 'MamaSafe: that number is not valid. Text CONTACT 0772123456.';
+        if (c === mother.phone) return 'MamaSafe: your emergency contact must be someone else.';
+        m = mothersSvc.update(db, mother.id, { contactPhone: c });
+      }
+      if (!m.contact_phone) return 'MamaSafe: no emergency contact saved. Text CONTACT and their number, e.g. CONTACT 0772123456.';
+      const r = contact.requestCode(db, m);
+      return r.error ? `MamaSafe: ${r.error}` : `MamaSafe: we texted a code to ${local(m.contact_phone)}. Ask them for it, then text CONFIRM and the code, e.g. CONFIRM 123456.`;
+    }
+    case 'CONFIRM': {
+      const r = contact.verifyCode(db, mother, args[0] || '');
+      return r.error ? `MamaSafe: ${r.error}` : 'MamaSafe: your emergency contact is confirmed. They will be told if you send SOS.';
     }
     case 'STOP':
       mothersSvc.update(db, mother.id, { smsOptin: false });
