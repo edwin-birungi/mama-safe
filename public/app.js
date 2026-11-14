@@ -42,7 +42,8 @@
     const res = await fetch(path, {
       method: opts.method || 'GET',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-      body: opts.body ? JSON.stringify(opts.body) : undefined
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: opts.signal
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -139,6 +140,7 @@
       if (v === 'home') return renderHome();
       if (v === 'visits') return renderVisits();
       if (v === 'sos') return renderSos();
+      if (v === 'ambulance') return await renderAmbulance();
       if (v === 'bag') return renderBag();
       if (v === 'chat') return renderChat();
       if (v === 'check') return await renderCheck();
@@ -368,6 +370,7 @@
       if (a === 'visits') return '<button type="button" class="ghost" data-act="visits">My visits</button>';
       if (a === 'home') return '<button type="button" class="ghost" data-act="home">Go to Home</button>';
       if (a === 'escalate') return `<button type="button" data-act="escalate" data-i="${i}">Send to my clinic</button>`;
+      if (a === 'retry') return `<button type="button" class="ghost" data-act="retry" data-i="${i}">Try again</button>`;
       return '';
     };
     const bubble = (m, i) => m.role === 'me'
@@ -377,8 +380,9 @@
         return `<div class="bub bot ${m.kind || ''}">${m.title ? `<small>${esc(m.title)}</small>` : ''}<div>${esc(m.text)}</div>${btns ? `<div class="acts">${btns}</div>` : ''}</div>`;
       })();
     const draw = () => {
-      $('#chatlog').innerHTML = chatLog.map(bubble).join('');
-      const el = $('#chatlog'); el.scrollTop = el.scrollHeight;
+      const el = $('#chatlog'); if (!el) return;
+      el.innerHTML = chatLog.map(bubble).join('');
+      el.scrollTop = el.scrollHeight;
       window.scrollTo(0, document.body.scrollHeight);
     };
     show(`<div class="chat"><h1>Ask MamaSafe</h1>
@@ -391,13 +395,27 @@
     api('/api/chat/suggestions').then((d) => { if (chatLog.length < 3 && $('#chips')) { $('#chips').innerHTML = d.suggestions.map((t) => `<button type="button" class="chip">${esc(t)}</button>`).join(''); } }).catch(() => {});
     const ask = async (text) => {
       text = text.trim(); if (!text) return;
-      chatLog.push({ role: 'me', text }); draw(); $('#cq').value = ''; $('#chips').innerHTML = '';
+      const input = $('#cq'), form = $('#cf'), chips = $('#chips');
+      chatLog.push({ role: 'me', text }); draw();
+      if (input) input.value = '';
+      if (chips) chips.innerHTML = '';
+      if (input) input.disabled = true;
+      if (form) form.querySelector('button').disabled = true;
+      chatLog.push({ role: 'bot', kind: 'pending', text: 'One moment, I’m checking that for you…', pending: true }); draw();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
       try {
-        const r = await api('/api/chat', { method: 'POST', body: { text } });
+        const r = await api('/api/chat', { method: 'POST', body: { text }, signal: controller.signal });
+        chatLog = chatLog.filter((m) => !m.pending);
         chatLog.push({ role: 'bot', kind: r.kind, title: r.title, text: r.text, acts: r.acts, asked: text });
       } catch (e) {
+        chatLog = chatLog.filter((m) => !m.pending);
         if (e.status === 401) return signOut();
-        chatLog.push({ role: 'bot', kind: 'unknown', text: 'I could not answer just now. Please check your connection. If it is urgent, call ' + cfg.emergencyNumber + '.', acts: ['call'] });
+        chatLog.push({ role: 'bot', kind: 'unknown', text: (e.name === 'AbortError' ? 'That is taking longer than expected.' : 'I could not reach MamaSafe just now.') + ' If this is urgent, press SOS or call ' + cfg.emergencyNumber + '. Otherwise, please try again.', acts: ['retry', 'sos', 'call'], asked: text });
+      } finally {
+        clearTimeout(timeout);
+        if (input) input.disabled = false;
+        if (form && form.querySelector('button')) form.querySelector('button').disabled = false;
       }
       draw();
     };
@@ -407,6 +425,7 @@
       const b = e.target.closest('[data-act]'); if (!b) return;
       const a = b.dataset.act;
       if (a === 'sos') return go('sos');
+      if (a === 'retry') { const m = chatLog[Number(b.dataset.i)]; if (m && m.asked) ask(m.asked); return; }
       if (a === 'check' || a === 'bag' || a === 'visits' || a === 'home' || a === 'care') return go(a);
       if (a === 'escalate') {
         const m = chatLog[Number(b.dataset.i)]; const q = (m && m.asked) || '';
@@ -529,6 +548,7 @@
       <div class="quick">
         <button type="button" data-go="check"><span class="ico">${svg(ICON.pulse)}</span>Check my symptoms<small>Not feeling right?</small></button>
         <button type="button" data-go="care"><span class="ico">${svg(ICON.pin)}</span>Find a hospital<small>Nearest, with phone numbers</small></button>
+        <button type="button" data-go="ambulance"><span class="ico">${svg(ICON.alert)}</span>Ambulance service<small>Find and call an available ambulance</small></button>
         <button type="button" data-go="visits"><span class="ico">${svg(ICON.calendar)}</span>My 8 visits<small>Dates and reminders</small></button>
         <button type="button" data-go="bag"><span class="ico">${svg(ICON.shield)}</span>Hospital bag<small>A checklist to pack</small></button>
         <button type="button" data-go="guide"><span class="ico">${svg(ICON.book)}</span>User guide<small>How MamaSafe works</small></button>
@@ -617,21 +637,36 @@
   async function renderCheck() {
     const { symptoms } = await api('/api/symptoms');
     const groups = [['emergency', 'Danger signs'], ['urgent', 'Needs a check-up soon'], ['mild', 'Common and usually mild']];
-    show(`<h1>How are you feeling?</h1><p class="muted">Tick everything that applies. This is a guide, not a diagnosis.</p>
-      <form id="f">${groups.map(([lvl, title]) => `<div class="sympgroup"><h2><span class="pill ${lvl}">${lvl.toUpperCase()}</span> ${title}</h2>` +
-        symptoms.filter((s) => s.level === lvl).map((s) => `<label class="check"><input type="checkbox" name="s" value="${esc(s.id)}"> ${esc(s.label)}</label>`).join('') + '</div>').join('')}
-        <button class="full" type="submit">Check</button></form><div id="res" aria-live="polite"></div>`);
+    show(`<button class="ghost" id="checkBack" type="button" style="margin-bottom:12px">← Back to Home</button>
+      <h1>How are you feeling?</h1><p class="muted">Choose every symptom you have, then tap Check. This guide cannot diagnose you.</p>
+      <p id="symptomCount" class="muted" aria-live="polite">No symptoms selected</p>
+      <form id="f">${groups.map(([lvl, title]) => `<section class="sympgroup"><h2><span class="pill ${lvl}">${lvl === 'emergency' ? 'ACT NOW' : lvl === 'urgent' ? 'TODAY' : 'COMMON'}</span> ${title}</h2>` +
+        symptoms.filter((s) => s.level === lvl).map((s) => `<label class="check"><input type="checkbox" name="s" value="${esc(s.id)}"> ${esc(s.label)}</label>`).join('') + '</section>').join('')}
+        <button class="full" type="submit">See what to do</button></form><div id="res" aria-live="polite"></div>
+      <div class="row" style="margin-top:16px"><button class="ghost" type="button" data-check-go="care">Find a health facility</button><button class="danger" type="button" data-check-go="sos">Emergency SOS</button></div>`);
+    $('#checkBack').onclick = () => go('home');
+    document.querySelectorAll('[data-check-go]').forEach((b) => { b.onclick = () => go(b.dataset.checkGo); });
+    document.querySelectorAll('input[name=s]').forEach((box) => { box.onchange = () => {
+      const n = document.querySelectorAll('input[name=s]:checked').length;
+      $('#symptomCount').textContent = n ? `${n} symptom${n === 1 ? '' : 's'} selected` : 'No symptoms selected';
+    }; });
     $('#f').onsubmit = async (e) => {
       e.preventDefault();
       const ids = [...document.querySelectorAll('input[name=s]:checked')].map((i) => i.value);
+      if (!ids.length) { $('#res').innerHTML = '<div class="card" role="status"><b>Select a symptom first</b><p class="muted">Tick one or more items above. If you feel something is wrong, contact your health worker.</p></div>'; return; }
+      const submit = $('#f button[type=submit]'); submit.disabled = true; submit.textContent = 'Checking…';
+      try {
       const r = await api('/api/triage', { method: 'POST', body: { symptoms: ids } });
       const titles = { emergency: 'Go to a health facility now', urgent: 'Get checked today', mild: 'Mention it at your next visit', none: 'Nothing selected' };
       $('#res').innerHTML = `<div class="result ${r.level}"><h2>${titles[r.level]}</h2><p style="margin:0">${esc(r.advice)}</p>
-        ${r.level === 'emergency' ? `<button class="full danger" style="background:#fff;color:#8e1b1b" id="alert" type="button">Alert my facility now</button>
-        <a class="btn full ghost" style="border-color:#fff;color:#fff" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a>` : ''}</div>`;
+        ${r.level === 'emergency' ? `<button class="full danger" id="alert" type="button">Send emergency alert</button><a class="btn full ghost" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a><button type="button" class="full ghost" data-result-go="ambulance">Find an ambulance</button>` : r.level === 'urgent' ? `<button type="button" class="full ghost" data-result-go="care">Find a health facility</button>` : ''}
+        ${r.level === 'mild' ? '<p class="muted">If symptoms worsen or you are worried, seek care sooner.</p>' : ''}</div>`;
       const a = $('#alert');
       if (a) a.onclick = () => sendAlert(r.matched);
+      document.querySelectorAll('[data-result-go]').forEach((b) => { b.onclick = () => go(b.dataset.resultGo); });
       $('#res').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (err) { say(err.message || 'Could not check symptoms. Please try again.', true); }
+      finally { if ($('#f button[type=submit]')) { $('#f button[type=submit]').disabled = false; $('#f button[type=submit]').textContent = 'See what to do'; } }
     };
   }
 
@@ -655,8 +690,59 @@
       <p class="muted">Use this if you or your baby are in danger, for example heavy bleeding, fits, or severe pain.</p>
       <button class="sosbtn danger" id="sos" type="button">Send emergency alert</button>
       <div class="card"><b>What happens next</b><div class="muted" style="color:var(--muted)">MamaSafe will try to alert your linked facility and, if added, your emergency contact. Nearby transport may be requested when available. If you need help now, call directly.</div></div>
+      <button class="full ghost" type="button" id="bookAmbulance" style="margin:0 0 12px">Find and call an ambulance</button>
+      <div class="card"><b>Call nearby transport</b><div class="muted" style="color:var(--muted)">See registered ambulances, boda riders and other available drivers near your location.</div><button class="full ghost" type="button" id="nearbyTransport">Find nearby transport</button><div id="transportResults" aria-live="polite"></div></div>
       <a class="btn full" style="background:#fff;color:#8e1b1b" href="tel:${esc(cfg.emergencyNumber)}">Or call ${esc(cfg.emergencyNumber)} now</a></div>`);
     $('#sos').onclick = () => sendAlert(['sos']);
+    $('#bookAmbulance').onclick = () => go('ambulance');
+    $('#nearbyTransport').onclick = async (e) => {
+      const btn = e.currentTarget, results = $('#transportResults');
+      btn.disabled = true; btn.textContent = 'Finding available transport…';
+      try {
+        const where = await locate(2500);
+        const query = where ? `?lat=${encodeURIComponent(where.lat)}&lng=${encodeURIComponent(where.lng)}` : '';
+        const r = await api('/api/transport/nearby' + query);
+        results.innerHTML = r.transport.length
+          ? `<p class="muted" style="color:var(--muted)">Call a provider directly. Availability can change, so confirm they can come before relying on the ride.</p>${r.transport.map((p) => `<a class="btn full ghost" href="${telHref(p.phone)}">Call ${esc(p.name)} · ${esc(p.kindLabel)}${p.distanceKm != null ? ' · ' + esc(p.distanceKm) + ' km' : ''}</a>`).join('')}`
+          : `<p class="muted" style="color:var(--muted)">No registered nearby transport is available right now. Call ${esc(cfg.emergencyNumber)} or your health facility.</p>`;
+      } catch (err) {
+        results.innerHTML = `<p class="muted" style="color:var(--muted)">Could not load nearby transport. Call ${esc(cfg.emergencyNumber)} or your health facility now.</p>`;
+      } finally { btn.disabled = false; btn.textContent = 'Refresh nearby transport'; }
+    };
+  }
+
+  // Ambulance requests are currently completed by calling a verified, available provider.
+  // Fare and pickup are agreed with that provider; the app does not charge or promise dispatch.
+  async function renderAmbulance() {
+    show(`<button class="ghost" id="ambulanceBack" type="button" style="margin-bottom:12px">← Back to Home</button>
+      <h1>Ambulance service</h1><p class="muted">Find an available registered ambulance and call to arrange pickup. Confirm availability, destination and fare with the provider.</p>
+      <div class="card"><b>Need urgent medical help?</b><p class="muted">Press SOS or call ${esc(cfg.emergencyNumber)} now. Do not wait for a booking or payment.</p><button class="danger full" id="ambulanceSos" type="button">Send emergency SOS</button></div>
+      <h2>Available ambulances near you</h2><p id="ambulanceStatus" class="muted" aria-live="polite">Looking for registered providers…</p><div id="ambulanceList"></div>
+      <button class="ghost full" id="ambulanceRefresh" type="button">Refresh nearby ambulances</button>
+      <p class="muted">MamaSafe does not currently take payment for ambulance rides. The fare and pickup are confirmed directly with the provider.</p>`);
+    $('#ambulanceBack').onclick = () => go('home');
+    $('#ambulanceSos').onclick = () => go('sos');
+    const load = async () => {
+      const btn = $('#ambulanceRefresh'), status = $('#ambulanceStatus'), list = $('#ambulanceList');
+      btn.disabled = true; status.textContent = 'Checking your location and available ambulances…'; list.innerHTML = '';
+      try {
+        const where = await locate(2500);
+        const query = where ? `?lat=${encodeURIComponent(where.lat)}&lng=${encodeURIComponent(where.lng)}` : '';
+        const r = await api('/api/transport/nearby' + query);
+        const providers = r.transport.filter((p) => p.kind === 'ambulance');
+        if (!providers.length) {
+          status.textContent = 'No registered available ambulance was found nearby.';
+          list.innerHTML = `<div class="card"><p class="muted">You can check other available transport or contact your health facility.</p><button class="ghost full" id="otherTransport" type="button">See boda and other transport</button><a class="btn full" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a></div>`;
+          $('#otherTransport').onclick = () => go('sos');
+        } else {
+          status.textContent = `${providers.length} available ambulance${providers.length === 1 ? '' : 's'} found${where ? ' near your location' : ' for your area'}.`;
+          list.innerHTML = providers.map((p) => `<article class="card"><b>${esc(p.name)}</b><p class="muted">Ambulance${p.area ? ' · ' + esc(p.area) : ''}${p.distanceKm != null ? ' · ' + esc(p.distanceKm) + ' km away' : ''}</p><a class="btn full" href="${telHref(p.phone)}">Call to arrange pickup · ${esc(fmtPhone(p.phone))}</a></article>`).join('');
+        }
+      } catch (err) { status.textContent = err.status === 401 ? 'Please sign in again.' : 'We could not load ambulances. Call your health facility or emergency number now.'; }
+      finally { btn.disabled = false; }
+    };
+    $('#ambulanceRefresh').onclick = load;
+    await load();
   }
 
   function showAlertSent(r) {
