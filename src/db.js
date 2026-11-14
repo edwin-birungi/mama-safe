@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS mothers (
   channel TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS accounts (
+  phone TEXT PRIMARY KEY,
+  email TEXT UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  recovery_hash TEXT,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY,
   mother_id INTEGER NOT NULL REFERENCES mothers(id),
@@ -153,7 +160,8 @@ const ADDED = {
     source: 'TEXT', contact_confidence: 'TEXT', researched_on: 'TEXT', notes: 'TEXT'
   },
   alerts: { notified: 'INTEGER NOT NULL DEFAULT 0' },
-  mothers: { contact_verified_at: 'TEXT', registration_lat: 'REAL', registration_lng: 'REAL', registration_location_at: 'TEXT' }
+  mothers: { contact_verified_at: 'TEXT', registration_lat: 'REAL', registration_lng: 'REAL', registration_location_at: 'TEXT' },
+  accounts: { recovery_hash: 'TEXT' }
 };
 
 function migrate(db) {

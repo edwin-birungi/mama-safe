@@ -99,9 +99,11 @@ function createServer(db) {
 
   function profile(mother) {
     const g = schedule.gestation(mother.lmp);
+    const account = db.prepare('SELECT email, recovery_hash FROM accounts WHERE phone = ?').get(mother.phone);
     return {
       registered: true,
       demo: demo.isDemoPhone(mother.phone),
+      account: { passwordSet: !!account, emailSet: !!(account && account.email), recoverySet: !!(account && account.recovery_hash) },
       mother: { id: mother.id, name: mother.name, phone: mother.phone, lmp: mother.lmp, smsOptin: mother.sms_optin, contactPhone: mother.contact_phone, contactVerified: !!mother.contact_verified_at, facilityId: mother.facility_id },
       gestation: g,
       edd: schedule.edd(mother.lmp),
@@ -225,6 +227,63 @@ function createServer(db) {
   }
 
   // Phone sign-in
+  route('POST', '/api/account/register', ({ body, ip }) => {
+    if (limited('account-register:' + ip, 8)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const phone = normalizePhone(body.phone);
+    if (!phone) throw new HttpError(400, 'Enter a valid phone number.');
+    const email = String(body.email || '').trim().toLowerCase();
+    if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new HttpError(400, 'Enter a valid email address, or leave it blank.');
+    const result = auth.registerPassword(db, { phone, email: email || null, password: body.password });
+    if (result.error) throw new HttpError(result.status, result.error);
+    const mother = mothersSvc.byPhone(db, phone);
+    return { status: 201, json: { token: result.token, recoveryCode: result.recoveryCode, registered: !!mother } };
+  });
+  route('POST', '/api/account/login', ({ body, ip }) => {
+    if (limited('account-login:' + ip, 20)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const raw = String(body.identifier || '').trim();
+    if (!raw || raw.length > 254) throw new HttpError(400, 'Enter your phone number or email.');
+    let identifier;
+    if (raw.includes('@')) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) throw new HttpError(400, 'Enter a valid email address.');
+      identifier = raw.toLowerCase();
+    } else {
+      identifier = normalizePhone(raw);
+      if (!identifier) throw new HttpError(400, 'Enter a valid phone number or email.');
+    }
+    const result = auth.loginPassword(db, { identifier, password: body.password });
+    if (result.error) throw new HttpError(result.status, result.error);
+    const mother = mothersSvc.byPhone(db, identifier.startsWith('+') ? identifier : db.prepare('SELECT phone FROM accounts WHERE email = ? COLLATE NOCASE').get(identifier).phone);
+    return { json: { token: result.token, registered: !!mother } };
+  });
+  route('POST', '/api/account/password', ({ req, body, ip }) => {
+    const { phone, mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Complete your profile first.');
+    if (limited('account-password:' + ip, 8)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const emailInput = String(body.email || '').trim().toLowerCase();
+    const email = emailInput || undefined;
+    if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new HttpError(400, 'Enter a valid email address, or leave it blank.');
+    const result = auth.setPassword(db, { phone, email, password: body.password });
+    if (result.error) throw new HttpError(result.status, result.error);
+    return { json: result };
+  });
+  route('POST', '/api/account/recover', ({ body, ip }) => {
+    if (limited('account-recover:' + ip, 8)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const raw = String(body.identifier || '').trim();
+    if (!raw || raw.length > 254) throw new HttpError(400, 'Enter your phone number or email.');
+    let identifier;
+    if (raw.includes('@')) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) throw new HttpError(400, 'Enter a valid email address.');
+      identifier = raw.toLowerCase();
+    } else {
+      identifier = normalizePhone(raw);
+      if (!identifier) throw new HttpError(400, 'Enter a valid phone number or email.');
+    }
+    const result = auth.recoverPassword(db, { identifier, recoveryCode: body.recoveryCode, password: body.password });
+    if (result.error) throw new HttpError(result.status, result.error);
+    return { json: result };
+  });
+
+  // Legacy OTP endpoints remain available for existing SMS-based deployments during migration.
   route('POST', '/api/otp/request', async ({ body, ip }) => {
     if (limited('otp:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
     const phone = normalizePhone(body.phone);
@@ -249,7 +308,9 @@ function createServer(db) {
   // Signed-in mother
   route('GET', '/api/me', ({ req }) => {
     const { phone, mother } = motherAuth(req);
-    return { json: mother ? profile(mother) : { registered: false, phone, ...(demo.isDemoPhone(phone) ? { demo: true } : {}) } };
+    const account = db.prepare('SELECT email, recovery_hash FROM accounts WHERE phone = ?').get(phone);
+    const accountStatus = { passwordSet: !!account, emailSet: !!(account && account.email), recoverySet: !!(account && account.recovery_hash) };
+    return { json: mother ? { ...profile(mother), account: accountStatus } : { registered: false, phone, account: accountStatus, ...(demo.isDemoPhone(phone) ? { demo: true } : {}) } };
   });
   route('POST', '/api/register', ({ req, body }) => {
     const { phone, mother } = motherAuth(req);
@@ -440,7 +501,7 @@ function createServer(db) {
     if (path.basename(file).startsWith('dashboard')) adminCheck(req);
     const ext = path.extname(file);
     const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
-    if (ext === '.html' || path.basename(file) === 'sw.js') headers['Cache-Control'] = 'no-cache';
+    if (ext === '.html' || path.basename(file) === 'app.js' || path.basename(file) === 'sw.js') headers['Cache-Control'] = 'no-cache';
     res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
   }

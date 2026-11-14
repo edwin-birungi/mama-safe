@@ -33,7 +33,10 @@
     install: '<path d="M12 3.5v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/>',
     question: '<circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.4-1.1.9-1.1 1.7M12 17h.01"/>'
   };
-  let auth = { step: 'phone', phone: '' };
+  let authMode = 'register';
+  let recoveryCodeToShow = '';
+  let recoveryNext = 'login';
+  let authPrefill = '';
 
   async function api(path, opts = {}) {
     const res = await fetch(path, {
@@ -43,7 +46,10 @@
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const e = new Error(data.error || 'Something went wrong.');
+      const message = data.error || (res.status === 404 && path.startsWith('/api/account/')
+        ? 'Password sign-in is not enabled on this server yet. Restart or redeploy MamaSafe, then refresh the page.'
+        : 'Something went wrong.');
+      const e = new Error(message);
       e.status = res.status;
       throw e;
     }
@@ -115,7 +121,7 @@
   }
 
   function signOut() {
-    token = null; me = null; auth = { step: 'phone', phone: '' };
+    token = null; me = null; authMode = 'register';
     store.del('ms_token');
     go('auth');
   }
@@ -146,53 +152,93 @@
   // ---------- sign in ----------
   function renderAuth() {
     nav.hidden = true;
-    if (auth.step === 'phone') {
-      show(`<div class="welcome compact-welcome">
-        <div class="wordmark">Mama<span>Safe</span></div>
-        <h1>Care and support for your pregnancy</h1>
-        <p class="muted">Sign in or create your free account with your phone.</p></div>
-        <form id="f" class="card" style="margin-top:14px"><label for="phone" style="margin-top:0">Phone number</label>
-        <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required>
-        <button class="full" type="submit">Send verification code</button>
-        <p class="muted auth-note">We’ll text a one-time code. After you verify your number, you can register or sign in.</p></form>
-        <button class="link full" id="howto" type="button" style="margin-top:6px">How MamaSafe works</button>`);
-      $('#howto').onclick = () => openGuide();
-      $('#f').onsubmit = async (e) => {
-        e.preventDefault();
-        const btn = $('#f button'); btn.disabled = true;
-        try {
-          const r = await api('/api/otp/request', { method: 'POST', body: { phone: $('#phone').value } });
-          auth = { step: 'code', phone: r.phone, devCode: r.devCode, demo: !!r.demo };
-          renderAuth();
-        } catch (err) { say(err.message, true); btn.disabled = false; }
+    if (authMode === 'recovery-code') {
+      show(`<div class="card recovery-card"><h1>Save your recovery code</h1>
+        <p class="muted">Keep this code somewhere private. If you forget your password, use it to reset it. It can only be used once; we’ll give you a new one after recovery.</p>
+        <p class="recovery-code" id="recoveryCode">${esc(recoveryCodeToShow)}</p>
+        <button class="ghost full" id="copyRecovery" type="button">Copy recovery code</button>
+        <button class="full" id="savedRecovery" type="button">Continue</button></div>`);
+      $('#copyRecovery').onclick = async () => {
+        try { await navigator.clipboard.writeText(recoveryCodeToShow); say('Recovery code copied.'); }
+        catch { say('Copy is unavailable here. Please copy the code above.', true); }
       };
-    } else {
-      show(auth.demo
-        ? `<p class="eyebrow">Verify your phone · step 1 of 2</p><h1>Demo access</h1>
-        <p class="muted">This is a demo number, so no SMS is sent. Enter the developer access code you were given.</p>
-        <form id="f"><label for="code">Developer access code</label>
-        <input id="code" type="password" autocomplete="off" autocapitalize="off" required>
-        <button class="full" type="submit">Continue</button>
-        <button class="full ghost" type="button" id="back">Use a different number</button></form>`
-        : `<p class="eyebrow">Verify your phone · step 1 of 2</p><h1>Enter your code</h1>
-        <p class="muted">We sent a 6-digit code by SMS to ${esc(auth.phone)}. Enter it to continue.</p>
-        ${auth.devCode ? `<p class="muted"><b>Development mode:</b> your code is ${esc(auth.devCode)}.</p>` : ''}
-        <form id="f"><label for="code">6-digit code</label>
-        <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
-        <button class="full" type="submit">Continue</button>
-        <button class="full ghost" type="button" id="back">Use a different number</button></form>`);
-      $('#back').onclick = () => { auth = { step: 'phone', phone: '' }; renderAuth(); };
-      $('#f').onsubmit = async (e) => {
-        e.preventDefault();
-        const btn = $('#f button'); btn.disabled = true;
-        try {
-          const r = await api('/api/otp/verify', { method: 'POST', body: { phone: auth.phone, code: $('#code').value } });
-          token = r.token; store.set('ms_token', token);
-          await loadMe();
-          go(me.registered ? 'home' : 'register');
-        } catch (err) { say(err.message, true); btn.disabled = false; }
+      $('#savedRecovery').onclick = async () => {
+        const next = recoveryNext; recoveryCodeToShow = '';
+        if (next === 'profile' || next === 'home') {
+          try { await loadMe(); go(next === 'profile' ? 'register' : 'home'); }
+          catch (err) { say(err.message, true); }
+        } else { authMode = 'login'; renderAuth(); say('Password updated. Sign in with your new password.'); }
       };
+      return;
     }
+
+    const registering = authMode === 'register';
+    const loggingIn = authMode === 'login';
+    const recovering = authMode === 'recover';
+    show(`<section class="auth-screen">
+      <div class="auth-hero">
+        <p class="eyebrow">PREGNANCY CARE, WITH YOU</p>
+        <h1>Care for you.<br><span>Confidence for every step.</span></h1>
+        <p class="auth-tagline">Thoughtful support from your first visit to delivery.</p>
+        <div class="auth-art" aria-hidden="true"><span class="auth-orbit"></span><span class="auth-orbit inner"></span><img src="/logo.svg" alt=""></div>
+      </div>
+      <div class="auth-content">
+      <div class="auth-heading"><span class="eyebrow">MAMASAFE</span><h2>${registering ? 'Create your account' : recovering ? 'Reset your password' : 'Welcome back'}</h2><p class="muted">${registering ? 'Start with your phone number.' : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.'}</p></div>
+      <div class="auth-tabs" role="tablist" aria-label="Account action">
+        <button type="button" data-auth="register" aria-selected="${registering}">Create account</button>
+        <button type="button" data-auth="login" aria-selected="${loggingIn}">Sign in</button>
+      </div>
+      <form id="accountForm" class="card auth-form">
+        ${registering ? `<label for="phone" style="margin-top:0">Phone number <span class="muted">(required)</span></label>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required>
+          <label for="email">Email <span class="muted">(optional)</span></label>
+          <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com">
+          <label for="password">Create a password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+          <label for="confirm">Confirm password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
+          : `<label for="identifier" style="margin-top:0">Phone number or email</label>
+          <input id="identifier" type="text" autocomplete="username" placeholder="Phone number or email" value="${esc(authPrefill)}" required>
+          ${recovering ? `<label for="recovery">Recovery code</label><input id="recovery" type="text" autocomplete="off" autocapitalize="characters" required>
+            <label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+            <label for="confirm">Confirm new password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
+            : `<label for="password">Password</label><input id="password" type="password" autocomplete="current-password" maxlength="128" required>`}`}
+        <button class="full" type="submit">${registering ? 'Create my account' : recovering ? 'Reset password' : 'Sign in'}</button>
+        ${registering ? '<p class="muted auth-note">After signup, save the recovery code so you can reset your password without SMS.</p>' : ''}
+      </form>
+      ${loggingIn ? '<button class="link full" id="forgotPassword" type="button">Forgot your password?</button>' : recovering ? '<button class="link full" id="backToLogin" type="button">Back to sign in</button>' : ''}
+      </div></section>`);
+    document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => { authMode = b.dataset.auth; renderAuth(); }; });
+    if ($('#forgotPassword')) $('#forgotPassword').onclick = () => { authMode = 'recover'; renderAuth(); };
+    if ($('#backToLogin')) $('#backToLogin').onclick = () => { authMode = 'login'; renderAuth(); };
+    $('#accountForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $('#accountForm button[type=submit]');
+      if ((registering || recovering) && $('#password').value !== $('#confirm').value) return say('Those passwords do not match.', true);
+      btn.disabled = true;
+      try {
+        const r = registering
+          ? await api('/api/account/register', { method: 'POST', body: { phone: $('#phone').value, email: $('#email').value, password: $('#password').value } })
+          : recovering
+            ? await api('/api/account/recover', { method: 'POST', body: { identifier: $('#identifier').value, recoveryCode: $('#recovery').value, password: $('#password').value } })
+            : await api('/api/account/login', { method: 'POST', body: { identifier: $('#identifier').value, password: $('#password').value } });
+        if (registering) {
+          token = r.token; store.set('ms_token', token);
+          recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; renderAuth();
+        } else if (recovering) {
+          recoveryCodeToShow = r.recoveryCode; recoveryNext = 'login'; authMode = 'recovery-code'; renderAuth();
+        } else {
+          token = r.token; store.set('ms_token', token);
+          await loadMe(); go(me.registered ? 'home' : 'register');
+        }
+      } catch (err) {
+        if (registering && err.status === 409 && /An account already uses this (phone|email)/.test(err.message)) {
+          authPrefill = err.message.includes('email') ? $('#email').value : $('#phone').value;
+          authMode = 'login'; renderAuth();
+          say('An account already exists. Sign in with its phone or email and password.');
+          return;
+        }
+        say(err.message, true); btn.disabled = false;
+      }
+    };
   }
 
   function basicPhoneCard() {
@@ -220,7 +266,7 @@
         <div id="fres" class="pick" role="radiogroup" aria-label="Choose your facility"></div>
       <label for="contact">Emergency contact <span class="muted">(optional)</span></label>
         <input id="contact" type="tel" inputmode="tel" autocomplete="off" placeholder="Husband, mother, friend (optional)">
-        <label class="check"><input id="sms" type="checkbox" checked> Send visit reminders by SMS</label>
+        <label class="check"><input id="sms" type="checkbox" checked> Send visit reminders by SMS (when available)</label>
         <button class="full" type="submit">Create my profile</button>
       </form>`);
     const list = async () => {
@@ -490,8 +536,14 @@
       ${payCard()}
       ${basicPhoneCard()}
       ${contactCard()}
+      ${me.account && me.account.passwordSet && me.account.recoverySet ? '' : `<h2>Set up account recovery</h2>
+        <form id="passwordSetup" class="card"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. The code lets you reset your password without SMS.</p>
+          <label for="accountEmail">Email <span class="muted">(optional)</span></label><input id="accountEmail" type="email" autocomplete="email">
+          <label for="accountPassword">New password</label><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+          <label for="accountConfirm">Confirm password</label><input id="accountConfirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+          <button class="full" type="submit">Save password and recovery code</button></form>`}
       <h2>Settings</h2>
-      <div class="card"><label class="check"><input id="optin" type="checkbox" ${me.mother.smsOptin ? 'checked' : ''}> SMS visit reminders</label>
+      <div class="card"><label class="check"><input id="optin" type="checkbox" ${me.mother.smsOptin ? 'checked' : ''}> SMS visit reminders (when available)</label>
       <button class="ghost full" id="out" type="button">Sign out</button></div>`);
     wirePay();
     wireContact();
@@ -500,6 +552,17 @@
       try { me = await api('/api/me', { method: 'PATCH', body: { smsOptin: e.target.checked } }); say('Saved.'); } catch (err) { say(err.message, true); }
     };
     $('#out').onclick = signOut;
+    const passwordSetup = $('#passwordSetup');
+    if (passwordSetup) passwordSetup.onsubmit = async (e) => {
+      e.preventDefault();
+      if ($('#accountPassword').value !== $('#accountConfirm').value) return say('Those passwords do not match.', true);
+      const btn = $('#passwordSetup button[type=submit]'); btn.disabled = true;
+      try {
+        const email = $('#accountEmail').value.trim();
+        const r = await api('/api/account/password', { method: 'POST', body: { ...(email ? { email } : {}), password: $('#accountPassword').value } });
+        recoveryCodeToShow = r.recoveryCode; recoveryNext = 'home'; authMode = 'recovery-code'; renderAuth();
+      } catch (err) { say(err.message, true); btn.disabled = false; }
+    };
   }
 
   // Emergency contact: save the number, text it a code, and type the code in. Proves the number is right and that

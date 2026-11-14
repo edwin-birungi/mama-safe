@@ -19,10 +19,10 @@ npm start      # http://localhost:3000
 npm test       # 110 tests
 ```
 
-On first start (development mode) it loads **22 real Ugandan hospitals** (`seed/facilities.uganda.csv`, see *Facility data* below) and runs SMS in **dry-run mode**: every message is recorded and visible in the dashboard's *Messages* tab, but nothing is actually sent. The sign-in code is shown on screen in development mode.
+On first start (development mode) it loads **22 real Ugandan hospitals** (`seed/facilities.uganda.csv`, see *Facility data* below) and runs SMS in **dry-run mode**: every message is recorded and visible in the dashboard's *Messages* tab, but nothing is actually sent. Web accounts use a password; phone is required and email is optional. Passwords are stored as salted scrypt hashes. Phone numbers and email addresses are not verified. Each account gets a one-time recovery code at signup; save it to reset the password later. Email/SMS verification still needs a messaging provider.
 
 Try it:
-1. Open `http://localhost:3000`, sign in with any phone number, register.
+1. Open `http://localhost:3000`, create an account with a phone number, optional email, and password, then complete the pregnancy profile.
 2. Open `http://localhost:3000/dashboard` in another tab. Press **SOS** in the app. The alert appears; click *I am acting on this*.
 3. Simulate a feature phone:
    ```bash
@@ -124,7 +124,7 @@ Limits you should know about:
 ## How it works
 
 - **USSD** is stateless: the gateway sends every answer so far (`2*5*1`); we replay it through a small state machine (`src/ussd.js`). Every screen is tested to fit the 182-character limit.
-- **Phone number = identity** on USSD and SMS (the network supplies it). The web app proves it with a one-time SMS code.
+- **Web account sign-in** uses a phone number or optional email address plus password. Contact ownership is not verified in the current password flow. Legacy OTP endpoints remain available during migration; configure a live SMS provider before relying on phone verification or password recovery.
 - **Emergency alert** (`src/alerts.js`): saves an alert, SMSes the facility's alert mobile if it has one (they reply `ACK 12`), SMSes the emergency contact, and confirms to the mother. Repeated taps within 5 minutes do not page twice. Facility choice: nearest **24-hour** facility when GPS is available; otherwise her own facility if it is 24-hour, else a 24-hour one in her area.
 - **Reminders** (`src/reminders.js`): 3 days before, 1 day before and on the day of the next visit, 08:00 to 19:00 East Africa time, each sent once. Visits follow the 8-contact WHO schedule (weeks 12, 20, 26, 30, 34, 36, 38, 40).
 - **Triage** (`src/triage.js`): danger signs → *emergency*, check-up-soon signs → *urgent*, common symptoms → *mild*.
