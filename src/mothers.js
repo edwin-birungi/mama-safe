@@ -1,10 +1,10 @@
 'use strict';
 
-function create(db, { phone, name, lmp, facilityId, contactPhone, smsOptin = true, channel }) {
+function create(db, { phone, name, lmp, facilityId, contactPhone, smsOptin = true, channel, registrationLat, registrationLng, registrationLocationAt }) {
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO mothers (phone, name, lmp, facility_id, contact_phone, sms_optin, channel, created_at)
-              VALUES (?,?,?,?,?,?,?,?)`)
-    .run(phone, name || null, lmp, facilityId || null, contactPhone || null, smsOptin ? 1 : 0, channel, new Date().toISOString());
+    .prepare(`INSERT INTO mothers (phone, name, lmp, facility_id, contact_phone, sms_optin, channel, created_at, registration_lat, registration_lng, registration_location_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(phone, name || null, lmp, facilityId || null, contactPhone || null, smsOptin ? 1 : 0, channel, new Date().toISOString(), registrationLat ?? null, registrationLng ?? null, registrationLocationAt || null);
   return byId(db, Number(lastInsertRowid));
 }
 

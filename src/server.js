@@ -265,8 +265,15 @@ function createServer(db) {
       contactPhone = normalizePhone(body.contactPhone);
       if (!contactPhone) throw new HttpError(400, 'Emergency contact number is not valid.');
     }
+    const registrationLat = body.location && Number(body.location.lat);
+    const registrationLng = body.location && Number(body.location.lng);
+    if (body.location && (!Number.isFinite(registrationLat) || registrationLat < -90 || registrationLat > 90 || !Number.isFinite(registrationLng) || registrationLng < -180 || registrationLng > 180)) {
+      throw new HttpError(400, 'Could not verify that location. Try sharing it again or continue without it.');
+    }
     const m = mothersSvc.create(db, {
       phone, name: String(body.name || '').trim().slice(0, 40) || null, lmp, facilityId, contactPhone,
+      registrationLat: body.location ? registrationLat : null, registrationLng: body.location ? registrationLng : null,
+      registrationLocationAt: body.location ? new Date().toISOString() : null,
       smsOptin: body.smsOptin !== false, channel: 'app'
     });
     sms.send(db, phone, messages.welcome(db, m), 'welcome');

@@ -147,19 +147,15 @@
   function renderAuth() {
     nav.hidden = true;
     if (auth.step === 'phone') {
-      show(`<div class="welcome"><img class="mark" src="/logo.svg" alt="" width="104" height="104">
-        <div class="wordmark">Mama<span>Safe</span></div><p class="tagline">Safe motherhood, every step</p>
-        <h1>Welcome</h1>
-        <p class="muted" style="font-size:16px;margin:0">Visit reminders, a danger-sign check and one-tap emergency alerts, all in your pocket.</p></div>
-        <form id="f" class="card" style="margin-top:20px"><label for="phone" style="margin-top:0">Your phone number</label>
+      show(`<div class="welcome compact-welcome">
+        <div class="wordmark">Mama<span>Safe</span></div>
+        <h1>Care and support for your pregnancy</h1>
+        <p class="muted">Sign in or create your free account with your phone.</p></div>
+        <form id="f" class="card" style="margin-top:14px"><label for="phone" style="margin-top:0">Phone number</label>
         <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required>
-        <p class="muted" style="margin:8px 0 0">We will text you a 6-digit code. Your number is only used for reminders and emergency alerts.</p>
-        <button class="full" type="submit">Send me a code</button></form>
-        <button class="ghost full" id="findcare" type="button">Find a hospital near me</button>
-        <button class="link full" id="howto" type="button" style="margin-top:6px">First time here? Read the quick guide</button>
-        ${basicPhoneCard()}
-        <div class="trust"><span>Free emergency help</span><span>No card needed to sign in</span><span>Works on any phone</span></div>`);
-      $('#findcare').onclick = () => go('care');
+        <button class="full" type="submit">Send verification code</button>
+        <p class="muted auth-note">We’ll text a one-time code. After you verify your number, you can register or sign in.</p></form>
+        <button class="link full" id="howto" type="button" style="margin-top:6px">How MamaSafe works</button>`);
       $('#howto').onclick = () => openGuide();
       $('#f').onsubmit = async (e) => {
         e.preventDefault();
@@ -172,14 +168,14 @@
       };
     } else {
       show(auth.demo
-        ? `<h1>Demo access</h1>
+        ? `<p class="eyebrow">Verify your phone · step 1 of 2</p><h1>Demo access</h1>
         <p class="muted">This is a demo number, so no SMS is sent. Enter the developer access code you were given.</p>
         <form id="f"><label for="code">Developer access code</label>
         <input id="code" type="password" autocomplete="off" autocapitalize="off" required>
         <button class="full" type="submit">Continue</button>
         <button class="full ghost" type="button" id="back">Use a different number</button></form>`
-        : `<h1>Enter your code</h1>
-        <p class="muted">We sent a 6-digit code by SMS to ${esc(auth.phone)}.</p>
+        : `<p class="eyebrow">Verify your phone · step 1 of 2</p><h1>Enter your code</h1>
+        <p class="muted">We sent a 6-digit code by SMS to ${esc(auth.phone)}. Enter it to continue.</p>
         ${auth.devCode ? `<p class="muted"><b>Development mode:</b> your code is ${esc(auth.devCode)}.</p>` : ''}
         <form id="f"><label for="code">6-digit code</label>
         <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
@@ -210,18 +206,19 @@
   async function renderRegister() {
     nav.hidden = true;
     let chosen = null;
-    show(`<h1>Tell us about your pregnancy</h1>
-      <p class="muted">This sets up your visit schedule and your clinic.</p>
+    show(`<p class="eyebrow">Set up your profile · step 2 of 2</p><h1>Set up your care</h1>
+        <p class="muted">A few details to set up your care.</p>
       <form id="f">
-        <label for="name">Your first name</label>
-        <input id="name" type="text" autocomplete="given-name" maxlength="40">
+        <label for="name">First name</label>
+        <input id="name" type="text" autocomplete="given-name" maxlength="40" required>
         <label for="lmp">First day of your last period</label>
         <input id="lmp" type="date" min="${isoDaysAgo(280)}" max="${isoToday()}" required>
         <label for="fsearch">Your clinic or hospital</label>
         <input id="fsearch" type="search" placeholder="Type a district or the clinic's name" autocomplete="off">
-        <button class="ghost" type="button" id="loc" style="margin-top:10px">${pos ? 'Showing the nearest to you' : 'Use my location'}</button>
+        <button class="ghost" type="button" id="loc" style="margin-top:10px">${pos ? 'Location shared ✓' : 'Share my location'}</button>
+        <p id="locnote" class="muted location-note">Share a one-time location to add a location record to your registration and find nearby care. You can continue without it.</p>
         <div id="fres" class="pick" role="radiogroup" aria-label="Choose your facility"></div>
-        <label for="contact">Phone of someone we can alert in an emergency</label>
+      <label for="contact">Emergency contact <span class="muted">(optional)</span></label>
         <input id="contact" type="tel" inputmode="tel" autocomplete="off" placeholder="Husband, mother, friend (optional)">
         <label class="check"><input id="sms" type="checkbox" checked> Send visit reminders by SMS</label>
         <button class="full" type="submit">Create my profile</button>
@@ -243,13 +240,24 @@
     let timer = null;
     $('#fsearch').oninput = () => { clearTimeout(timer); timer = setTimeout(list, 250); };
     $('#fres').onchange = (e) => { chosen = Number(e.target.value); };
-    $('#loc').onclick = async () => { say('Finding your location…'); pos = await locate(); say(pos ? '' : 'Could not get your location. Search by district instead.', !pos); if (pos) { $('#loc').textContent = 'Showing the nearest to you'; list(); } };
+    $('#loc').onclick = async () => {
+      say('Requesting your location…');
+      pos = await locate(12000);
+      if (pos) {
+        say('Location shared for registration.');
+        $('#loc').textContent = 'Location shared ✓';
+        $('#locnote').textContent = 'A one-time location record will be saved with your registration. It can also help find nearby care.';
+        list();
+      } else {
+        say('Location wasn’t available. You can search by district and continue without sharing it.', true);
+      }
+    };
     list();
     $('#f').onsubmit = async (e) => {
       e.preventDefault();
       const btn = $('#f button[type=submit]'); btn.disabled = true;
       try {
-        me = await api('/api/register', { method: 'POST', body: { name: $('#name').value, lmp: $('#lmp').value, facilityId: chosen, contactPhone: $('#contact').value, smsOptin: $('#sms').checked } });
+        me = await api('/api/register', { method: 'POST', body: { name: $('#name').value, lmp: $('#lmp').value, facilityId: chosen, contactPhone: $('#contact').value, smsOptin: $('#sms').checked, location: pos } });
         go(store.get('ms_tour_done') ? 'home' : 'tour');
       } catch (err) { say(err.message, true); btn.disabled = false; }
     };
@@ -307,6 +315,7 @@
     const fac = me.facility && bestPhone(me.facility);
     const act = (a, i) => {
       if (a === 'sos') return '<button type="button" class="danger" data-act="sos">Press SOS</button>';
+      if (a === 'care') return '<button type="button" class="ghost" data-act="care">Find a hospital</button>';
       if (a === 'call') return `<a class="btn ghost" href="${telHref(fac || cfg.emergencyNumber)}">Call ${fac ? 'my clinic' : esc(cfg.emergencyNumber)}</a>`;
       if (a === 'check') return '<button type="button" class="ghost" data-act="check">Check my symptoms</button>';
       if (a === 'bag') return '<button type="button" class="ghost" data-act="bag">Hospital bag list</button>';
@@ -352,7 +361,7 @@
       const b = e.target.closest('[data-act]'); if (!b) return;
       const a = b.dataset.act;
       if (a === 'sos') return go('sos');
-      if (a === 'check' || a === 'bag' || a === 'visits' || a === 'home') return go(a);
+      if (a === 'check' || a === 'bag' || a === 'visits' || a === 'home' || a === 'care') return go(a);
       if (a === 'escalate') {
         const m = chatLog[Number(b.dataset.i)]; const q = (m && m.asked) || '';
         b.disabled = true;
@@ -455,6 +464,7 @@
     const fac = me.facility;
     show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
         <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
+      <button type="button" class="home-emergency" data-go="sos"><span class="home-emergency-icon">SOS</span><span><b>Need urgent help?</b><small>Send an emergency alert or call for help</small></span><span aria-hidden="true">›</span></button>
       ${weekStrip(next && next.date)}
       ${homeRing(pct, tri, g.weeks)}
       <div class="bubbles">
@@ -564,7 +574,8 @@
 
   async function sendAlert(symptoms) {
     say('Sending your alert…');
-    const where = await locate(4000);
+    // Location is helpful but must never make an emergency alert wait on a slow GPS fix.
+    const where = await locate(1200);
     try {
       const r = await api('/api/alerts', { method: 'POST', body: { symptoms, ...(where || {}) } });
       say('');
@@ -580,7 +591,7 @@
     show(`<div class="sosview"><h1>Emergency help</h1>
       <p class="muted">Use this if you or your baby are in danger, for example heavy bleeding, fits, or severe pain.</p>
       <button class="sosbtn danger" id="sos" type="button">Send emergency alert</button>
-      <div class="card"><b>One tap will</b><div class="muted" style="color:var(--muted)">Tell your health facility, with your location if your phone shares it. Ask nearby drivers to collect you. Tell your emergency contact. Text you a confirmation.</div></div>
+      <div class="card"><b>What happens next</b><div class="muted" style="color:var(--muted)">MamaSafe will try to alert your linked facility and, if added, your emergency contact. Nearby transport may be requested when available. If you need help now, call directly.</div></div>
       <a class="btn full" style="background:#fff;color:#8e1b1b" href="tel:${esc(cfg.emergencyNumber)}">Or call ${esc(cfg.emergencyNumber)} now</a></div>`);
     $('#sos').onclick = () => sendAlert(['sos']);
   }

@@ -65,7 +65,7 @@ const faq = [
   { id: 'danger', q: 'What are the danger signs?', k: ['danger', 'warning sign', 'when should i worry', 'when to worry', 'emergency sign', 'what is serious', 'serious'],
     a: () => 'Go to a health facility straight away, and press SOS, if you have: heavy bleeding, fits, a severe headache with blurred vision, baby moving much less or not at all, fluid leaking from the vagina, severe belly pain, high fever with chills, or difficulty breathing.', acts: SOS },
   { id: 'sos', q: 'How does the SOS button work?', k: ['sos', 'alert', 'emergency button', 'how does the emergency', 'press sos'],
-    a: () => 'Press SOS, then Send emergency alert. MamaSafe tells your health facility, asks nearby drivers to come for you, and texts your emergency contact. It is always free. If you cannot use the app, call ' + config.emergencyNumber + '.', acts: ['sos'] },
+    a: () => 'Press SOS, then Send emergency alert. MamaSafe will try to notify your linked facility and, if you added one, your emergency contact. It may request nearby transport when available. If help does not respond, do not wait: call ' + config.emergencyNumber + ' or your facility.', acts: ['sos'] },
   { id: 'contact', q: 'What is the emergency contact for?', k: ['emergency contact', 'contact person', 'husband', 'partner', 'someone to call', 'who gets the message'],
     a: () => 'Your emergency contact is someone you trust, such as your husband, sister or neighbour. They are texted if you press SOS. Add their number on the Home screen and ask them for the code we send them, so we know the number is right.', acts: ['home'] },
   { id: 'phone', q: 'I do not have a smartphone', k: ['smartphone', 'ussd', 'basic phone', 'no data', 'keypad', 'feature phone', '*123'],
@@ -103,6 +103,12 @@ function intents(text, mother) {
     const n = schedule.nextVisit(mother.lmp);
     return { text: n ? `Your next visit is visit ${n.no} of 8, on ${schedule.pretty(n.date)}.` : 'You have no more visits planned. If you are worried, go to your clinic.', acts: ['visits'] };
   }
+  if (/(nearest|nearby|near me|closest|find).{0,30}(hospital|clinic|facility)|(hospital|clinic|facility).{0,20}(near|nearby|closest)/.test(text))
+    return { text: 'Open Find a hospital to see nearby health facilities. Share your location to sort by distance, or search by district. If you have danger signs, go now or press SOS.', acts: ['care', 'sos'] };
+  if (/(pharmacy|chemist|medicine deliver|deliver.{0,15}(medicine|drug|tablet))/.test(text))
+    return { kind: 'unknown', text: 'MamaSafe cannot arrange pharmacy delivery yet. Do not start, stop, or change a medicine based on chat. Ask your midwife or clinic what is safe in pregnancy; you can send your question to your clinic below.', acts: ['escalate', 'care'] };
+  if (/(pregnancy|baby).{0,25}(progress|this week|development|milestone)|(what happens|what changes).{0,20}(this week|pregnancy)/.test(text))
+    return { text: 'Your Home screen shows your pregnancy week, estimated due date, next antenatal visit, and a simple weekly baby-size comparison. For clinical questions about your pregnancy, ask your health worker.', acts: ['home', 'visits'] };
   return null;
 }
 
@@ -112,7 +118,7 @@ function answer(raw, mother) {
   if (text.trim().length < 2) return { kind: 'unknown', text: 'Type your question and I will try to help.', acts: [] };
 
   if (CRISIS.test(text)) return { kind: 'crisis', text: `I am sorry you feel this way, and I am glad you said it. You do not have to carry this alone. Please go to a health facility now or call ${config.emergencyNumber}, and tell someone you trust to stay with you. If you are in danger right now, press SOS.`, acts: SOS };
-  if (EMERGENCY.some((re) => re.test(text))) return { kind: 'emergency', text: 'This can be a danger sign. Go to a health facility now. Do not wait. Press SOS so your clinic and a driver are alerted, or call for help.', acts: SOS };
+  if (EMERGENCY.some((re) => re.test(text))) return { kind: 'emergency', text: 'This may be an emergency. Go to a health facility now; do not wait for a chat reply. Press SOS to request help, or call ' + config.emergencyNumber + ' or your clinic.', acts: SOS };
   if (LABOUR.test(text)) {
     const w = mother ? schedule.gestation(mother.lmp).weeks : 40;
     return w < 37

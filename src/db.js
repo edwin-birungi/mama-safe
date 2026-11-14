@@ -153,7 +153,7 @@ const ADDED = {
     source: 'TEXT', contact_confidence: 'TEXT', researched_on: 'TEXT', notes: 'TEXT'
   },
   alerts: { notified: 'INTEGER NOT NULL DEFAULT 0' },
-  mothers: { contact_verified_at: 'TEXT' }
+  mothers: { contact_verified_at: 'TEXT', registration_lat: 'REAL', registration_lng: 'REAL', registration_location_at: 'TEXT' }
 };
 
 function migrate(db) {
