@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
-    "import:facilities": "node --disable-warning=ExperimentalWarning scripts/import-facilities.js"
+    "import:facilities": "node --disable-warning=ExperimentalWarning scripts/import-facilities.js",
+    "import:transport": "node --disable-warning=ExperimentalWarning scripts/import-transport.js"
   }
 }

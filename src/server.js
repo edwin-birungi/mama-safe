@@ -11,6 +11,11 @@ const schedule = require('./schedule');
 const facilities = require('./facilities');
 const mothersSvc = require('./mothers');
 const alerts = require('./alerts');
+const transport = require('./transport');
+const contact = require('./contact');
+const demo = require('./demo');
+const assistant = require('./assistant');
+const questions = require('./questions');
 const sms = require('./sms');
 const messages = require('./messages');
 const reminders = require('./reminders');
@@ -96,7 +101,8 @@ function createServer(db) {
     const g = schedule.gestation(mother.lmp);
     return {
       registered: true,
-      mother: { id: mother.id, name: mother.name, phone: mother.phone, lmp: mother.lmp, smsOptin: mother.sms_optin, contactPhone: mother.contact_phone, facilityId: mother.facility_id },
+      demo: demo.isDemoPhone(mother.phone),
+      mother: { id: mother.id, name: mother.name, phone: mother.phone, lmp: mother.lmp, smsOptin: mother.sms_optin, contactPhone: mother.contact_phone, contactVerified: !!mother.contact_verified_at, facilityId: mother.facility_id },
       gestation: g,
       edd: schedule.edd(mother.lmp),
       visits: schedule.visits(mother.lmp),
@@ -210,13 +216,23 @@ function createServer(db) {
     return { redirect: '/?payment=' + (r.status === 'successful' ? 'success' : 'failed') };
   });
 
+  // Wait briefly for the SMS provider, so a failed send is shown now instead of a code that never arrives.
+  async function smsFailed(id) {
+    if (!sms.configured() || !id) return false;
+    await Promise.race([sms.settled(id), new Promise((r) => setTimeout(r, 8000).unref())]);
+    const row = db.prepare('SELECT status FROM outbox WHERE id = ?').get(id);
+    return !!row && row.status === 'failed';
+  }
+
   // Phone sign-in
-  route('POST', '/api/otp/request', ({ body, ip }) => {
+  route('POST', '/api/otp/request', async ({ body, ip }) => {
     if (limited('otp:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
     const phone = normalizePhone(body.phone);
     if (!phone) throw new HttpError(400, 'Enter a valid phone number.');
     const r = auth.requestOtp(db, phone);
     if (r.error) throw new HttpError(429, r.error);
+    if (r.demo) return { json: { ok: true, phone, demo: true } };
+    if (await smsFailed(r.smsId)) throw new HttpError(502, 'We could not send the SMS right now. Please try again in a minute.');
     // Development convenience only: never returned in production.
     return { json: { ok: true, phone, ...(config.env !== 'production' ? { devCode: r.code } : {}) } };
   });
@@ -233,7 +249,7 @@ function createServer(db) {
   // Signed-in mother
   route('GET', '/api/me', ({ req }) => {
     const { phone, mother } = motherAuth(req);
-    return { json: mother ? profile(mother) : { registered: false, phone } };
+    return { json: mother ? profile(mother) : { registered: false, phone, ...(demo.isDemoPhone(phone) ? { demo: true } : {}) } };
   });
   route('POST', '/api/register', ({ req, body }) => {
     const { phone, mother } = motherAuth(req);
@@ -282,7 +298,46 @@ function createServer(db) {
     const lat = num(body.lat), lng = num(body.lng);
     if (!validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
     const r = alerts.createAlert(db, { mother, symptoms: result.matched, lat, lng, channel: 'app' });
-    return { status: 201, json: { alertId: r.alert.id, duplicate: r.duplicate, notified: r.notified, facility: r.facility && facilities.publicView(r.facility) } };
+    return {
+      status: 201,
+      json: {
+        alertId: r.alert.id, duplicate: r.duplicate, notified: r.notified, facility: r.facility && facilities.publicView(r.facility),
+        transport: { asked: r.transport.asked, nearby: r.transport.nearby }
+      }
+    };
+  });
+
+  // Drivers near her (or in her district), with tap-to-call numbers. Signed-in mothers only, so the
+  // numbers of volunteer drivers are not handed out to anyone on the internet.
+  route('GET', '/api/transport/nearby', ({ req, query }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    const lat = num(query.get('lat')), lng = num(query.get('lng'));
+    if (lat !== undefined && !Number.isFinite(lat) || lng !== undefined && !Number.isFinite(lng) || !validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
+    const fac = mother.facility_id ? facilities.byId(db, mother.facility_id) : null;
+    const list = transport.nearby(db, { lat, lng, area: fac && fac.area, facilityId: fac && fac.id, limit: 8 });
+    return { json: { transport: list.map(transport.publicView) } };
+  });
+
+  // Emergency-contact confirmation: a code goes to the CONTACT's phone; she types it in.
+  route('POST', '/api/contact/request', async ({ req, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('contact:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
+    const r = contact.requestCode(db, mother);
+    if (r.error) throw new HttpError(r.limited ? 429 : 400, r.error);
+    if (r.demo) return { json: { ok: true, sentTo: r.to, devCode: r.code, demo: true } };
+    if (await smsFailed(r.smsId)) throw new HttpError(502, 'We could not text that number right now. Please try again in a minute.');
+    // Development convenience only: never returned in production.
+    return { json: { ok: true, sentTo: r.to, ...(config.env !== 'production' ? { devCode: r.code } : {}) } };
+  });
+  route('POST', '/api/contact/verify', ({ req, body, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('cverify:' + ip, 20)) throw new HttpError(429, 'Slow down and try again soon.');
+    const r = contact.verifyCode(db, mother, body.code);
+    if (r.error) throw new HttpError(400, r.error);
+    return { json: profile(mothersSvc.byId(db, mother.id)) };
   });
 
   // Dashboard API (HTTP Basic auth)
@@ -316,6 +371,44 @@ function createServer(db) {
       db.prepare(`UPDATE facilities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, f.id);
     }
     return { json: { facility: facilities.byId(db, f.id) } };
+  });
+  // Ask MamaSafe: fixed, reviewed answers, with a way to pass a question on to the clinic.
+  route('POST', '/api/chat', ({ req, body, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('chat:' + ip, 60)) throw new HttpError(429, 'Slow down and try again soon.');
+    return { json: assistant.answer(String(body.text || '').slice(0, 300), mother) };
+  });
+  route('GET', '/api/chat/suggestions', () => ({ json: { suggestions: assistant.SUGGESTIONS } }));
+  route('POST', '/api/chat/escalate', ({ req, body, ip }) => {
+    const { mother } = motherAuth(req);
+    if (!mother) throw new HttpError(404, 'Register first.');
+    if (limited('escalate:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
+    try {
+      const r = questions.create(db, mother, body.text);
+      return { json: { ok: true, notified: r.notified, demo: !!r.demo, facility: r.facility ? { name: r.facility.name, phone: facilities.bestPhone(r.facility) } : null } };
+    } catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
+  });
+  route('GET', '/api/admin/questions', ({ req, query }) => {
+    adminCheck(req);
+    return { json: { questions: questions.list(db, { status: query.get('status') || 'new' }) } };
+  });
+  route('PATCH', '/api/admin/questions/:id', ({ req, params }) => {
+    adminCheck(req);
+    return { json: { ok: questions.handle(db, Number(params[0])) } };
+  });
+  // Transport directory (staff). Drivers are never contacted until active = true.
+  route('GET', '/api/admin/transport', ({ req }) => {
+    adminCheck(req);
+    return { json: { kinds: transport.KINDS, transport: transport.listAll(db) } };
+  });
+  route('POST', '/api/admin/transport', ({ req, body }) => {
+    adminCheck(req);
+    try { return { status: 201, json: { provider: transport.create(db, body) } }; } catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
+  });
+  route('PATCH', '/api/admin/transport/:id', ({ req, params, body }) => {
+    adminCheck(req);
+    try { return { json: { provider: transport.update(db, Number(params[0]), body) } }; } catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
   });
   route('POST', '/api/admin/mothers/:id/waive', ({ req, params, body }) => {
     adminCheck(req);

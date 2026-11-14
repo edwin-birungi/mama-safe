@@ -97,6 +97,53 @@ CREATE TABLE IF NOT EXISTS tokens (
   phone TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+-- People who can carry a mother to care: ambulances, boda riders, taxi drivers, community volunteers.
+CREATE TABLE IF NOT EXISTS transport_providers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,            -- ambulance | boda | taxi | volunteer | other
+  phone TEXT NOT NULL UNIQUE,    -- a MOBILE that receives pickup requests by SMS
+  area TEXT,                     -- district
+  lat REAL,                      -- usual base (stage, garage or home); never shown publicly
+  lng REAL,
+  radius_km REAL NOT NULL DEFAULT 15,
+  facility_id INTEGER REFERENCES facilities(id),
+  available INTEGER NOT NULL DEFAULT 1,  -- the driver switches this with BUSY / AVAILABLE by SMS
+  active INTEGER NOT NULL DEFAULT 1,     -- staff switch: 0 = not listed and never contacted
+  verified_on TEXT,
+  notes TEXT,                    -- internal
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS transport_requests (
+  id INTEGER PRIMARY KEY,
+  alert_id INTEGER NOT NULL REFERENCES alerts(id),
+  provider_id INTEGER NOT NULL REFERENCES transport_providers(id),
+  status TEXT NOT NULL DEFAULT 'sent',   -- sent | accepted | taken (another driver accepted first)
+  sent_at TEXT NOT NULL,
+  accepted_at TEXT,
+  UNIQUE (alert_id, provider_id)
+);
+-- Questions the assistant could not answer, sent on to the mother's clinic.
+CREATE TABLE IF NOT EXISTS questions (
+  id INTEGER PRIMARY KEY,
+  mother_id INTEGER NOT NULL REFERENCES mothers(id),
+  facility_id INTEGER REFERENCES facilities(id),
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'new',   -- new | handled
+  notified INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  handled_at TEXT
+);
+-- One-time code sent to a mother's emergency contact so she can prove the number is real and agreed.
+CREATE TABLE IF NOT EXISTS contact_codes (
+  mother_id INTEGER PRIMARY KEY REFERENCES mothers(id),
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  sent_count INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL
+);
 `;
 
 // Databases created by version 0.1 lack the newer columns; add them in place.
@@ -105,7 +152,8 @@ const ADDED = {
     kind: 'TEXT', emergency_phone: 'TEXT', toll_free: 'TEXT', alert_phone: 'TEXT', email: 'TEXT', website: 'TEXT',
     source: 'TEXT', contact_confidence: 'TEXT', researched_on: 'TEXT', notes: 'TEXT'
   },
-  alerts: { notified: 'INTEGER NOT NULL DEFAULT 0' }
+  alerts: { notified: 'INTEGER NOT NULL DEFAULT 0' },
+  mothers: { contact_verified_at: 'TEXT' }
 };
 
 function migrate(db) {

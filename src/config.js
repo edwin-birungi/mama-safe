@@ -53,6 +53,13 @@ module.exports = {
       callbackKey: env.AIRTEL_CALLBACK_KEY || ''
     }
   },
+  // Demo / developer access for remote testers (see src/demo.js). Both must be set. The code must be 8+ characters.
+  demo: { code: env.DEMO_CODE || '', phones: env.DEMO_PHONES || '' },
+  // Emergency transport. When an alert is raised, the nearest registered drivers are sent a pickup SMS.
+  transport: {
+    autoDispatch: env.TRANSPORT_AUTO_DISPATCH !== 'false',
+    dispatchCount: Number(env.TRANSPORT_DISPATCH_COUNT) || 3   // how many drivers are asked per alert
+  },
   dashboard: { user: env.DASHBOARD_USER || 'admin', pass: env.DASHBOARD_PASS || '' },
   // If set, /ussd and /sms/inbound require ?key=<value> (put it in the callback URLs).
   webhookKey: env.WEBHOOK_KEY || '',

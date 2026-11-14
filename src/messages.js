@@ -18,7 +18,7 @@ function welcome(db, mother) {
 }
 
 const HELP_REGISTERED =
-  'MamaSafe: VISIT = next visit, CLINIC = your clinic, CLINICS DISTRICT = find one, SYMPTOM = check how you feel, SOS = emergency alert, STOP/START = reminders on/off.';
+  'MamaSafe: VISIT = next visit, CLINIC = your clinic, CLINICS DISTRICT = find one, SYMPTOM = check how you feel, SOS = emergency alert, CONTACT = confirm your emergency contact, STOP/START = reminders on/off.';
 const HELP_UNREGISTERED =
   'MamaSafe: To register text REG DDMMYY CODE (first day of last period, then your clinic code). Find your code: CLINICS DISTRICT. Example: REG 120426 MULAGO. SYMPTOM = check danger signs.';
 

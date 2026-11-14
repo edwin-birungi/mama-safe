@@ -16,7 +16,7 @@ No database server and no `npm install`: it uses Node 22's built-in SQLite and H
 ```bash
 node -v        # must be 22.5 or newer
 npm start      # http://localhost:3000
-npm test       # 71 tests
+npm test       # 110 tests
 ```
 
 On first start (development mode) it loads **22 real Ugandan hospitals** (`seed/facilities.uganda.csv`, see *Facility data* below) and runs SMS in **dry-run mode**: every message is recorded and visible in the dashboard's *Messages* tab, but nothing is actually sent. The sign-in code is shown on screen in development mode.
@@ -68,6 +68,20 @@ out center tags;
 
 **Emergency alerts need a mobile number.** A hospital's landline or toll-free line cannot receive SMS. Set `alert_phone` (a monitored mobile, ideally the maternity ward's) per facility, via the CSV or the dashboard API (`PATCH /api/admin/facilities/:id`). Until it is set the alert is saved and shown on the dashboard, the mother is told **"we could not message them, please call"** with the facility's numbers, and the dashboard flags the alert as *not sent by SMS*. The app never claims a facility was told unless an SMS really went to it. `alert_phone` and internal notes are never shown publicly. Facilities acknowledge with `ACK <number>` from that mobile only.
 
+## Emergency transport and emergency-contact codes
+
+**Transport directory.** MamaSafe holds no transport data of its own, and it never invents phone numbers. Staff add the ambulances, boda riders, taxi drivers and volunteers who agreed to be contacted (dashboard *Transport* tab, or `npm run import:transport -- drivers.csv`; columns `name,kind,phone,area,lat,lng,radius_km,facility_code,notes`, see `test/fixtures/transport.sample.csv`). `kind` is `ambulance`, `boda`, `taxi`, `volunteer` or `other`. Each driver has a base location (optional), a service radius (default 15 km) and a district.
+
+**What happens on an alert.** The nearest available drivers within their own radius are texted (the closest ambulance plus the nearest others, `TRANSPORT_DISPATCH_COUNT`, default 3). Without GPS (USSD or SMS) it uses drivers in the mother's district. The SMS says only "a pregnant woman needs urgent transport", with a map link or district. **It never includes her name, number or symptoms.** The driver replies `GO <alert number>`: the first to reply gets her name and number and a pickup link, the others are told it is taken, and the mother, the facility's alert mobile and her emergency contact are told who is coming. Drivers can text `BUSY` or `AVAILABLE` at any time; a driver who accepts is marked busy until they text `AVAILABLE`. The mother's app and the dashboard show who was asked and who accepted. Signed-in mothers can also tap to call the three nearest drivers. Set `TRANSPORT_AUTO_DISPATCH=false` to keep the directory but send nothing.
+
+Limits you should know about:
+- **Nobody is guaranteed to come.** It is a request to volunteers and riders, not an ambulance dispatch. Agree a response protocol with each facility and tell mothers plainly (the app guide does).
+- **Driver locations are static** (their saved base), not live. A rider may be far from their base. Keep the list current and call-test every number.
+- **Get consent and check legal duties** before listing anyone, and before texting a mother's pickup point to drivers. Only signed-in mothers and staff can see driver numbers.
+- Staff, not drivers, add and remove people; there is no self-registration or rating yet.
+
+**Emergency-contact confirmation.** On the Home screen a mother can save a contact and press *Send code to their phone*. The code goes to the **contact's** number (6 digits, hashed, expires in 10 minutes, 5 wrong tries, 3 codes an hour) and she types it in. This proves the number is right and that the person agrees. Over SMS: `CONTACT 0772123456` saves the number and texts it a code, then `CONFIRM 123456`. On USSD the main menu shows *7. Confirm contact* until it is done. Changing the number removes the confirmation. **Emergency alerts still go to an unconfirmed contact**, because an alert must not wait on this; the dashboard shows "(not confirmed)". Change that in `src/alerts.js` if you would rather send only to confirmed contacts.
+
 ## Payments (optional): MTN MoMo, Airtel Money and card
 
 **MTN MoMo and Airtel Money (work on any phone).** The app, USSD (*Pay fee* in the menu) and SMS (`PAY`, or `PAY 0772123456` for another number) ask the mother's operator to put a payment prompt on her phone. She enters her mobile money PIN there. This is the route for mothers without smartphones. The network is chosen from the number's prefix (077/078/076/039 = MTN, 070/074/075 = Airtel); you can enable either or both. If a number has moved networks the operator refuses the prompt and the mother is told by SMS.
@@ -116,13 +130,13 @@ Limits you should know about:
 - **Triage** (`src/triage.js`): danger signs → *emergency*, check-up-soon signs → *urgent*, common symptoms → *mild*.
 
 ### SMS keywords
-`REG DDMMYY CODE [name]` register (CODE or the number from a CLINICS reply) · `CLINICS district` find care · `VISIT` · `CLINIC` · `SYMPTOM 1 9` · `SOS` · `STOP` / `START` · `HELP`. Facilities reply `ACK <alert number>`.
+`REG DDMMYY CODE [name]` register (CODE or the number from a CLINICS reply) · `CLINICS district` find care · `VISIT` · `CLINIC` · `SYMPTOM 1 9` · `SOS` · `CONTACT 0772123456` / `CONFIRM 123456` emergency contact · `STOP` / `START` · `HELP`. Facilities reply `ACK <alert number>`. Drivers reply `GO <alert number>`, `BUSY` or `AVAILABLE`.
 
 ## Before real mothers use it (please read)
 
 - **Clinical review is required.** The danger-sign list, advice wording and visit schedule are reasonable defaults, not clinical guidance. Have a qualified clinician or the national maternal health programme review and sign off `src/triage.js` and `src/schedule.js`.
 - **Live SMS is untested.** The Africa's Talking calls follow their documented API but were not run against a real account (this was built without network access to it). Test in their sandbox first.
-- **No ambulance dispatch.** An alert tells the facility, the emergency contact and the mother. It does not book transport. Agree a response protocol with each facility.
+- **No guaranteed ambulance.** An alert tells the facility, the emergency contact and the mother, and asks nearby registered drivers to collect her (see *Emergency transport*), but nothing books a vehicle. Agree a response protocol with each facility.
 - **Facilities must respond.** An alert nobody reads is dangerous. Decide who watches the dashboard and phones, and what happens when an alert is not acknowledged (escalation is not built yet).
 - **USSD has no GPS.** Alerts from basic phones carry no coordinates, only her registered facility and area.
 - **Languages.** Everything is in English. Add Luganda, Kiswahili and others with native-speaking translators; do not machine-translate medical advice.
@@ -138,6 +152,6 @@ src/            server, USSD, SMS commands, triage, schedule, alerts, reminders
 public/         mother web app (PWA) and facility dashboard
 seed/           curated Uganda hospitals and national helplines (read-only reference data)
 data/           the SQLite file (created on first run)
-scripts/        facility importer
-test/           35 tests: npm test
+scripts/        facility and transport importers
+test/           110 tests: npm test
 ```

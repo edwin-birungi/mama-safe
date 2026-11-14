@@ -13,7 +13,12 @@ const byId = (db, id) => clean(db.prepare('SELECT * FROM mothers WHERE id = ?').
 const byPhone = (db, phone) => clean(db.prepare('SELECT * FROM mothers WHERE phone = ?').get(phone));
 
 function update(db, id, fields) {
-  const cols = { name: 'name', facilityId: 'facility_id', contactPhone: 'contact_phone', smsOptin: 'sms_optin', lmp: 'lmp' };
+  const cols = { name: 'name', facilityId: 'facility_id', contactPhone: 'contact_phone', smsOptin: 'sms_optin', lmp: 'lmp', contactVerifiedAt: 'contact_verified_at' };
+  // A new emergency contact has not agreed yet: drop the old confirmation.
+  if (fields.contactPhone !== undefined) {
+    const cur = byId(db, id);
+    if (cur && cur.contact_phone !== fields.contactPhone) fields = { ...fields, contactVerifiedAt: null };
+  }
   const sets = [], vals = [];
   for (const [k, col] of Object.entries(cols)) {
     if (fields[k] === undefined) continue;
