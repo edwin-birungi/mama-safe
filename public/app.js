@@ -14,7 +14,7 @@
   let me = null;
   let pos = null;
   let mapHandle = null;
-  let care = { q: '', kind: '', open24: false, limit: 20 };
+  let care = { q: '', kind: '', ownership: '', open24: false, limit: 20, mode: 'hospitals', sel: null, sheet: 'half', pick: false };
   let view = 'home';
   let backView = 'home';
 
@@ -59,12 +59,6 @@
 
   // ---------- phone + link helpers ----------
   const telHref = (p) => 'tel:' + String(p).replace(/[^+\d]/g, '');
-  function whatsappHref(p, message = '') {
-    let digits = String(p || '').replace(/\D/g, '');
-    // Facility numbers are primarily Ugandan: convert local 0-prefixed numbers for wa.me.
-    if (digits.startsWith('0')) digits = '256' + digits.slice(1);
-    return digits ? `https://wa.me/${digits}${message ? '?text=' + encodeURIComponent(message) : ''}` : '';
-  }
   // +256414554001 -> 0414 554 001 (Ugandan numbers); anything else is shown as given.
   function fmtPhone(p) {
     const m = /^\+256(\d{3})(\d{3})(\d{3})$/.exec(p || '');
@@ -77,13 +71,13 @@
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${f.name}, ${f.area}, Uganda`)}`;
   }
   const KIND = { hospital: 'Hospital', health_centre: 'Health centre', clinic: 'Clinic', other: 'Facility' };
+  const facilityLabel = (f) => f && f.kind === 'health_centre' && f.ownership === 'government' ? 'Government health centre' : KIND[f && f.kind] || 'Facility';
   const bestPhone = (f) => f && (f.phone || f.emergency_phone || f.toll_free);
 
   // Every number we hold, each one a tap-to-call button. Nothing is invented: no number, no button.
   function contactHtml(f) {
     const b = [];
     if (f.phone) b.push(`<a class="btn" href="${telHref(f.phone)}">Call ${esc(fmtPhone(f.phone))}</a>`);
-    if (f.phone) b.push(`<a class="btn ghost" target="_blank" rel="noopener" href="${esc(whatsappHref(f.phone, `Hello, I receive antenatal care at ${f.name}. I need some help.`))}">WhatsApp clinic</a>`);
     if (f.emergency_phone) b.push(`<a class="btn emerg" href="${telHref(f.emergency_phone)}">Emergency ${esc(fmtPhone(f.emergency_phone))}</a>`);
     if (f.toll_free) b.push(`<a class="btn tf" href="${telHref(f.toll_free)}">Toll-free ${esc(fmtPhone(f.toll_free))}</a>`);
     let html = b.length ? `<div class="row">${b.join('')}</div>` : `<p class="muted warn nophone">No phone on file. In an emergency, call ${esc(cfg.emergencyNumber)}.</p>`;
@@ -110,11 +104,11 @@
 
   const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
-  const daysUntil = (d) => Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(isoToday() + 'T00:00:00Z')) / 86400000);
   const isoDaysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
   function show(html, keep) {
     if (mapHandle) { mapHandle.destroy(); mapHandle = null; }
+    main.classList.remove('mapmode'); document.body.classList.remove('mapmode');
     main.innerHTML = html;
     if (keep) return;
     main.focus({ preventScroll: true });
@@ -136,6 +130,8 @@
   }
 
   async function go(v) {
+    // The old 'ambulance' booking screen is now the Ambulance tab of the map screen.
+    if (v === 'ambulance') { care.mode = 'ambulance'; v = 'care'; }
     view = v;
     say('');
     setNav();
@@ -148,7 +144,6 @@
       if (v === 'home') return renderHome();
       if (v === 'visits') return renderVisits();
       if (v === 'sos') return renderSos();
-      if (v === 'ambulance') return await renderAmbulance();
       if (v === 'bag') return renderBag();
       if (v === 'chat') return renderChat();
       if (v === 'check') return await renderCheck();
@@ -289,7 +284,7 @@
         const { facilities, total } = await api('/api/facilities?' + qs);
         if (!$('#fres') || box.value.trim() !== (qs.get('q') || '')) return; // stale answer
         $('#fres').innerHTML = facilities.map((f) => `<label class="check pickrow"><input type="radio" name="fac" value="${f.id}" ${chosen === f.id ? 'checked' : ''}>
-          <span><b>${esc(f.name)}</b><br><span class="muted">${esc(KIND[f.kind] || '')} · ${esc(f.area)}${f.distanceKm != null ? ' · ' + f.distanceKm + ' km' : ''}</span></span></label>`).join('')
+          <span><b>${esc(f.name)}</b><br><span class="muted">${esc(facilityLabel(f))} · ${esc(f.area)}${f.distanceKm != null ? ' · ' + f.distanceKm + ' km' : ''}</span></span></label>`).join('')
           + (total > facilities.length ? `<p class="muted">${total - facilities.length} more. Type to narrow the list.</p>` : '') || '<p class="muted">Nothing found. Try the district name.</p>';
       } catch (err) { say(err.message, true); }
     };
@@ -393,13 +388,14 @@
       el.scrollTop = el.scrollHeight;
       window.scrollTo(0, document.body.scrollHeight);
     };
-    show(`<div class="chat"><h1>Ask MamaSafe</h1>
+    show(`<div class="chat"><button type="button" class="link back" id="cback">← Home</button><h1>Ask MamaSafe</h1>
       <p class="muted" style="margin:0 0 8px">An automated helper with reviewed answers. It is not a doctor and cannot diagnose. In an emergency press SOS or call ${esc(cfg.emergencyNumber)}.</p>
       <div id="chatlog" class="chatlog" aria-live="polite"></div>
       <div id="chips" class="chips"></div>
       <form id="cf" class="chatform"><label for="cq" class="sr">Your question</label><input id="cq" type="text" maxlength="300" autocomplete="off" placeholder="Type your question"><button type="submit" aria-label="Send">${svg('<path d="M4 12 20 4l-4 16-4-7z"/>')}</button></form></div>`);
     if (!chatLog.length) chatLog.push({ role: 'bot', kind: 'answer', text: `Hello${me.mother.name ? ' ' + me.mother.name : ''}. Ask me about your visits, food, tablets, common discomforts, or what to do in an emergency.`, acts: [] });
     draw();
+    $('#cback').onclick = () => go('home');
     api('/api/chat/suggestions').then((d) => { if (chatLog.length < 3 && $('#chips')) { $('#chips').innerHTML = d.suggestions.map((t) => `<button type="button" class="chip">${esc(t)}</button>`).join(''); } }).catch(() => {});
     const ask = async (text) => {
       text = text.trim(); if (!text) return;
@@ -535,7 +531,6 @@
     const done = (me.visits || []).filter((v) => v.status === 'past').length;
     const days = g.days != null ? g.days : g.totalDays % 7;
     const fac = me.facility;
-    const visitInDays = next ? daysUntil(next.date) : null;
     show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
         <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
       <button type="button" class="home-emergency" data-go="sos"><span class="home-emergency-icon">SOS</span><span><b>Need urgent help?</b><small>Send an emergency alert or call for help</small></span><span aria-hidden="true">›</span></button>
@@ -547,11 +542,10 @@
         <div class="bubble"><small>Visits done</small><b>${done} of 8</b></div>
       </div>
       <button type="button" class="askcard" data-go="chat"><span class="ico">${svg(ICON.chat)}</span><span><b>Ask MamaSafe</b><small>Questions about your pregnancy? Get an answer, or send it to your clinic.</small></span></button>
-      <div class="callout" style="margin:16px 0"><b>Remember your antenatal card.</b> Bring it to every visit.</div>
       ${babyCard(g.weeks)}
       <div class="rail">
         <div class="tile fill">${next
-          ? `<h3>Next visit ${next.no} of 8</h3><div class="when">${fmtDate(next.date)}</div><div>${fac ? esc(fac.name) : 'No facility chosen yet'}</div>${visitInDays <= 7 ? `<div class="callout" role="status"><b>Your visit is ${visitInDays === 0 ? 'today' : visitInDays === 1 ? 'tomorrow' : `in ${visitInDays} days`}.</b> Bring your antenatal card.</div>` : ''}<div class="meter" aria-hidden="true"><span style="width:${Math.round((next.no / 8) * 100)}%"></span></div>${fac && bestPhone(fac) ? `<a class="btn light" href="${telHref(bestPhone(fac))}">Call ${esc(fmtPhone(bestPhone(fac)))}</a>${fac.phone ? `<a class="btn light" target="_blank" rel="noopener" href="${esc(whatsappHref(fac.phone, `Hello, I receive antenatal care at ${fac.name}. I need some help.`))}">WhatsApp my clinic</a>` : ''}` : ''}`
+          ? `<h3>Next visit ${next.no} of 8</h3><div class="when">${fmtDate(next.date)}</div><div>${fac ? esc(fac.name) : 'No facility chosen yet'}</div><div class="meter" aria-hidden="true"><span style="width:${Math.round((next.no / 8) * 100)}%"></span></div>${fac && bestPhone(fac) ? `<a class="btn light" href="${telHref(bestPhone(fac))}">Call ${esc(fmtPhone(bestPhone(fac)))}</a>` : ''}`
           : '<h3>No more visits planned</h3><div>Your baby is due soon. Text or tap SOS if you need urgent help.</div>'}</div>
         <div class="tile soft"><h3>Know the danger signs</h3><div>Heavy bleeding, fits, severe headache with blurred vision, or baby moving much less: go to a health facility straight away and press SOS.</div></div>
       </div>
@@ -566,12 +560,12 @@
       ${payCard()}
       ${basicPhoneCard()}
       ${contactCard()}
-      ${me.account && me.account.passwordSet && me.account.recoverySet ? '' : `<h2>Set up account recovery</h2>
-        <form id="passwordSetup" class="card"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. The code lets you reset your password without SMS.</p>
+      ${me.account && me.account.passwordSet && me.account.recoverySet ? '' : `<details class="card fold"><summary><span><b>Set up account recovery</b><small>Add a password so you can always get back in</small></span></summary>
+        <form id="passwordSetup" class="foldbody"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. The code lets you reset your password without SMS.</p>
           <label for="accountEmail">Email <span class="muted">(optional)</span></label><input id="accountEmail" type="email" autocomplete="email">
           <label for="accountPassword">New password</label><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
           <label for="accountConfirm">Confirm password</label><input id="accountConfirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
-          <button class="full" type="submit">Save password and recovery code</button></form>`}
+          <button class="full" type="submit">Save password and recovery code</button></form></details>`}
       <h2>Settings</h2>
       <div class="card"><label class="check"><input id="optin" type="checkbox" ${me.mother.smsOptin ? 'checked' : ''}> SMS visit reminders (when available)</label>
       <button class="ghost full" id="out" type="button">Sign out</button></div>`);
@@ -603,8 +597,8 @@
     const note = !m.contactPhone ? 'Someone we text if you press SOS.'
       : m.contactVerified ? 'They will be texted if you press SOS.'
         : 'Press the button and we text a code to their phone. Ask them for it. It proves the number is right and that they agree.';
-    return `<h2>Emergency contact${state}</h2>
-      <div class="card"><div class="muted">${note}</div>
+    return `<details class="card fold" id="cfold"${m.contactPhone && !m.contactVerified ? ' open' : ''}><summary><span><b>Emergency contact</b>${state}<small>${m.contactPhone ? esc(fmtPhone(m.contactPhone)) : 'Not added yet. Tap to add.'}</small></span></summary>
+      <div class="foldbody"><div class="muted">${note}</div>
         <label for="cphone">Their phone number</label>
         <input id="cphone" type="tel" inputmode="tel" autocomplete="off" value="${esc(m.contactPhone ? fmtPhone(m.contactPhone) : '')}" placeholder="0772 123 456">
         <button class="ghost full" id="csave" type="button">Save number</button>
@@ -613,7 +607,7 @@
           <input id="ccode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits">
           <button class="full" id="cconfirm" type="button">Confirm</button></div>
         <p class="muted" id="chint"></p>` : ''}
-      </div>`;
+      </div></details>`;
   }
   function wireContact() {
     const save = $('#csave');
@@ -638,12 +632,10 @@
 
   // ---------- visits ----------
   function renderVisits() {
-    const next = me.visits.find((v) => v.status === 'next');
-    const days = next ? daysUntil(next.date) : null;
-    show(`<h1>My visits</h1><p class="muted">8 antenatal contacts, planned from your due date. Dates already passed are shown faded.</p>
-      ${next && days <= 7 ? `<div class="callout" role="status"><b>Your next antenatal visit is ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}.</b> Remember to bring your antenatal card.</div>` : ''}
+    show(`<button type="button" class="link back" id="vback">← Home</button><h1>My visits</h1><p class="muted">8 antenatal contacts, planned from your due date. Dates already passed are shown faded.</p>
       ${me.visits.map((v) => `<div class="card visit ${v.status}"><div class="dot">${v.no}</div><div><b>Visit ${v.no} · week ${v.week}</b><div class="muted">${fmtDate(v.date)}${v.status === 'next' ? ' · NEXT' : ''}</div>${v.status === 'next' && me.facility ? `<div class="muted">${esc(me.facility.name)}</div>` : ''}</div></div>`).join('')}
-      <div class="callout" style="margin-top:16px"><b>Bring your antenatal card to every visit.</b> Your health worker uses it to follow your care.</div>`);
+      <p class="muted">Bring your antenatal card to every visit.</p>`);
+    $('#vback').onclick = () => go('home');
   }
 
   // ---------- symptom check ----------
@@ -722,40 +714,6 @@
         results.innerHTML = `<p class="muted" style="color:var(--muted)">Could not load nearby transport. Call ${esc(cfg.emergencyNumber)} or your health facility now.</p>`;
       } finally { btn.disabled = false; btn.textContent = 'Refresh nearby transport'; }
     };
-  }
-
-  // Ambulance requests are currently completed by calling a verified, available provider.
-  // Fare and pickup are agreed with that provider; the app does not charge or promise dispatch.
-  async function renderAmbulance() {
-    show(`<button class="ghost" id="ambulanceBack" type="button" style="margin-bottom:12px">← Back to Home</button>
-      <h1>Ambulance service</h1><p class="muted">Find an available registered ambulance and call to arrange pickup. Confirm availability, destination and fare with the provider.</p>
-      <div class="card"><b>Need urgent medical help?</b><p class="muted">Press SOS or call ${esc(cfg.emergencyNumber)} now. Do not wait for a booking or payment.</p><button class="danger full" id="ambulanceSos" type="button">Send emergency SOS</button></div>
-      <h2>Available ambulances near you</h2><p id="ambulanceStatus" class="muted" aria-live="polite">Looking for registered providers…</p><div id="ambulanceList"></div>
-      <button class="ghost full" id="ambulanceRefresh" type="button">Refresh nearby ambulances</button>
-      <p class="muted">MamaSafe does not currently take payment for ambulance rides. The fare and pickup are confirmed directly with the provider.</p>`);
-    $('#ambulanceBack').onclick = () => go('home');
-    $('#ambulanceSos').onclick = () => go('sos');
-    const load = async () => {
-      const btn = $('#ambulanceRefresh'), status = $('#ambulanceStatus'), list = $('#ambulanceList');
-      btn.disabled = true; status.textContent = 'Checking your location and available ambulances…'; list.innerHTML = '';
-      try {
-        const where = await locate(2500);
-        const query = where ? `?lat=${encodeURIComponent(where.lat)}&lng=${encodeURIComponent(where.lng)}` : '';
-        const r = await api('/api/transport/nearby' + query);
-        const providers = r.transport.filter((p) => p.kind === 'ambulance');
-        if (!providers.length) {
-          status.textContent = 'No registered available ambulance was found nearby.';
-          list.innerHTML = `<div class="card"><p class="muted">You can check other available transport or contact your health facility.</p><button class="ghost full" id="otherTransport" type="button">See boda and other transport</button><a class="btn full" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a></div>`;
-          $('#otherTransport').onclick = () => go('sos');
-        } else {
-          status.textContent = `${providers.length} available ambulance${providers.length === 1 ? '' : 's'} found${where ? ' near your location' : ' for your area'}.`;
-          list.innerHTML = providers.map((p) => `<article class="card"><b>${esc(p.name)}</b><p class="muted">Ambulance${p.area ? ' · ' + esc(p.area) : ''}${p.distanceKm != null ? ' · ' + esc(p.distanceKm) + ' km away' : ''}</p><a class="btn full" href="${telHref(p.phone)}">Call to arrange pickup · ${esc(fmtPhone(p.phone))}</a></article>`).join('');
-        }
-      } catch (err) { status.textContent = err.status === 401 ? 'Please sign in again.' : 'We could not load ambulances. Call your health facility or emergency number now.'; }
-      finally { btn.disabled = false; }
-    };
-    $('#ambulanceRefresh').onclick = load;
-    await load();
   }
 
   function showAlertSent(r) {
@@ -894,75 +852,195 @@
     const rt = $('#retour'); if (rt) rt.onclick = () => go('tour');
   }
 
-  // ---------- find care near me (works signed in or not) ----------
-  const CHIPS = [['', 'All'], ['hospital', 'Hospitals'], ['health_centre', 'Health centres'], ['clinic', 'Clinics'], ['open24', 'Open 24h']];
+  // ---------- find care and transport near me: full-screen map with a bottom sheet (works signed in or not) ----------
+  const CHIPS = [['', 'All'], ['hospital', 'Hospitals'], ['clinic', 'Clinics'], ['health_centre', 'Health centres'], ['government', 'Government'], ['open24', 'Open 24h']];
+  const chipOn = (v) => (v === 'open24' ? care.open24 : v === 'government' ? care.ownership === 'government' : v === 'health_centre' ? care.kind === 'health_centre' && care.ownership !== 'government' : !care.open24 && !care.ownership && care.kind === v);
+  const MODES = [['hospitals', 'Hospitals'], ['ambulance', 'Ambulance'], ['boda', 'Boda & cars']];
+  // A light grey base map, like the ride apps. Swap TILE_URL for 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' to use plain OpenStreetMap.
+  const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const TILE_ATTR = '&copy; OpenStreetMap contributors';
+  const PIN_SVG = '<svg viewBox="0 0 24 32" width="40" height="54" aria-hidden="true"><path d="M12 0C5.4 0 0 5.2 0 11.7 0 20 12 32 12 32s12-12 12-20.3C24 5.2 18.6 0 12 0z" fill="#ee6d67"/><circle cx="12" cy="11.5" r="4.5" fill="#fff"/></svg>';
+  let drivers = [], facById = new Map(), careSeq = 0;
+
+  function markerNode(kind, f, sel) {
+    const d = document.createElement('div');
+    if (kind === 'fac') { d.className = 'mk fac ' + (f.kind || '') + (sel ? ' sel' : ''); d.textContent = f.kind === 'clinic' ? '+' : 'H'; }
+    else if (kind === 'drv') { d.className = 'mk drv' + (sel ? ' sel' : ''); d.textContent = f.kind === 'ambulance' ? '🚑' : '🏍'; }
+    else { d.className = 'youdot'; }
+    d.title = kind === 'you' ? 'You are here' : f.name;
+    return d;
+  }
+
+  function sizeMapView() {
+    const mv = document.getElementById('mapview'); if (!mv) return;
+    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    const navH = nav.hidden ? 0 : nav.offsetHeight;
+    const h = Math.max(420, Math.round(vh - mv.getBoundingClientRect().top - navH));
+    mv.style.height = h + 'px';
+    applySheet();
+    if (mapHandle) mapHandle.invalidate();
+  }
+  function sheetPx() {
+    const mv = document.getElementById('mapview'); if (!mv) return 0;
+    const h = mv.clientHeight;
+    if (care.pick) return 128;
+    return { peek: 236, half: Math.max(340, Math.round(h * 0.5)), full: Math.round(h * 0.9) }[care.sheet] || 340;
+  }
+  function applySheet() {
+    const mv = document.getElementById('mapview'); if (!mv) return;
+    mv.dataset.state = care.pick ? 'pick' : care.sheet;
+    mv.style.setProperty('--sh', sheetPx() + 'px');
+  }
+  window.addEventListener('resize', sizeMapView);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', sizeMapView);
 
   async function renderCare() {
     const signedIn = !!(me && me.registered);
     if (!signedIn) nav.hidden = true;
-    const lines = (cfg.helplines || []).filter((l) => l.confidence !== 'low');
-    show(`${signedIn ? '' : '<button class="ghost" id="back" type="button" style="margin-bottom:10px">&larr; Back</button>'}
-      <h1>Find a hospital near you</h1>
-      <div class="card helplines"><div class="hl first"><div><b>Emergency</b><div class="muted">Police and general emergency. 112 also works.</div></div><a class="btn danger" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a></div>
-        ${lines.filter((l) => l.number !== cfg.emergencyNumber && l.kind !== 'emergency').length ? `<details><summary>Toll-free health lines</summary>
-        ${lines.filter((l) => l.number !== cfg.emergencyNumber && l.kind !== 'emergency').map((l) => `<div class="hl"><div><b>${esc(l.name)}</b><div class="muted">${esc(l.note || '')}</div></div><a class="btn tf" href="${telHref(l.tel)}">${esc(l.number)}</a></div>`).join('')}
-        ${cfg.helplinesChecked ? `<div class="muted">Numbers last checked ${esc(cfg.helplinesChecked)}.</div>` : ''}</details>` : ''}</div>
-      <button class="full" id="loc" type="button">${pos ? 'Sorted by distance from you' : 'Use my location to find the nearest'}</button>
-      <label for="q" class="sr">Search by district or name</label>
-      <input id="q" type="search" placeholder="Search a district or facility name" value="${esc(care.q)}" autocomplete="off" style="margin-top:12px">
-      <div class="chips" role="group" aria-label="Filter">${CHIPS.map(([v, t]) => `<button type="button" class="chip" data-chip="${v}" aria-pressed="${(v === 'open24' ? care.open24 : !care.open24 && care.kind === v)}">${t}</button>`).join('')}</div>
-      <div id="map" role="region" aria-label="Map of health facilities"></div>
-      <p id="count" class="muted" aria-live="polite"></p>
-      <div id="results"></div>
-      <button class="ghost full" id="more" type="button" hidden>Show more</button>
-      <p class="muted">Facility details come from public sources and may be out of date. Always call ahead if you can; in an emergency go to the nearest hospital or call ${esc(cfg.emergencyNumber)}.</p>`);
-    const back = $('#back'); if (back) back.onclick = () => go('auth');
-    $('#loc').onclick = async () => { say('Finding your location…'); pos = await locate(); say(pos ? '' : 'Could not get your location. You can still search by district.', !pos); if (pos) { $('#loc').textContent = 'Sorted by distance from you'; refreshCare(); } };
+    const lines = (cfg.helplines || []).filter((l) => l.confidence !== 'low' && l.number !== cfg.emergencyNumber && l.kind !== 'emergency');
+    if (!signedIn) care.mode = 'hospitals';
+    care.pick = false; care.sel = null;
+    show(`<div class="mapview" id="mapview">
+      <div id="map" role="region" aria-label="Map of health facilities and transport"></div>
+      <button type="button" class="rbtn mback" id="mback" aria-label="Back">${svg('<path d="m15 5-7 7 7 7"/>')}</button>
+      <button type="button" class="rbtn locate" id="locate" aria-label="Show my location">${svg('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')}</button>
+      <div class="cpin" id="cpin" hidden>${PIN_SVG}</div>
+      <section class="sheet" id="sheet" aria-label="Find care and transport">
+        <button type="button" class="grab" id="grab" aria-label="Show more or less"><span></span></button>
+        <div class="sbody" id="sbody">
+          ${signedIn ? `<div class="modes" role="group" aria-label="What are you looking for">${MODES.map(([v, t]) => `<button type="button" data-mode="${v}" aria-pressed="${care.mode === v}">${t}</button>`).join('')}</div>` : ''}
+          <div class="fld pick"><span class="dot"></span><b>Pick up</b><span class="val" id="picktxt"></span><button type="button" id="pickedit" aria-label="Choose pick-up on the map">${svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>')}</button></div>
+          <div class="fld where" id="wherefld"><b>Where to</b><input id="q" type="search" placeholder="Type a hospital or district" value="${esc(care.q)}" autocomplete="off" aria-label="Hospital or district"><button type="button" id="qclear" aria-label="Clear search" ${care.q ? '' : 'hidden'}>${svg('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
+          <div class="uses"><button type="button" class="link" id="usecur">${svg('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')} Use current location</button><button type="button" class="link" id="usemap">Use map ${svg('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>')}</button></div>
+          <div class="chips" id="chips" role="group" aria-label="Filter">${CHIPS.map(([v, t]) => `<button type="button" class="chip" data-chip="${v}" aria-pressed="${chipOn(v)}">${t}</button>`).join('')}</div>
+          <p id="count" class="muted" aria-live="polite"></p>
+          <div id="results"></div>
+          <button class="ghost full" id="more" type="button" hidden>Show more</button>
+          <div class="card helplines"><div class="hl first"><div><b>Emergency</b><div class="muted">Police and general emergency. 112 also works.</div></div><a class="btn danger" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a></div>
+            ${lines.length ? `<details><summary>Toll-free health lines</summary>${lines.map((l) => `<div class="hl"><div><b>${esc(l.name)}</b><div class="muted">${esc(l.note || '')}</div></div><a class="btn tf" href="${telHref(l.tel)}">${esc(l.number)}</a></div>`).join('')}${cfg.helplinesChecked ? `<div class="muted">Numbers last checked ${esc(cfg.helplinesChecked)}.</div>` : ''}</details>` : ''}</div>
+          <p class="muted">Facility details come from public sources and may be out of date. Call ahead if you can. In an emergency go to the nearest hospital or call ${esc(cfg.emergencyNumber)}.</p>
+        </div>
+        <div class="pickbar" id="pickbar"><b>Move the map to your pick-up point</b><div class="row"><button type="button" id="pickok">Confirm pick-up</button><button type="button" class="ghost" id="pickcancel">Cancel</button></div></div>
+      </section></div>`);
+    main.classList.add('mapmode'); document.body.classList.add('mapmode');
+    const mv = $('#mapview');
+    const paintPick = () => { $('#picktxt').textContent = pos ? (pos.manual ? 'Point you chose on the map' : 'My current location') : 'Location is off'; };
+    const paintMode = () => {
+      const hosp = care.mode === 'hospitals';
+      $('#wherefld').hidden = !hosp; $('#chips').hidden = !hosp;
+      document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', x.dataset.mode === care.mode));
+    };
+    const where = (f) => (f && f.lat != null ? { lat: f.lat, lng: f.lng } : null);
+    const mapSet = (o) => { if (mapHandle) mapHandle.set({ you: pos, pad: sheetPx(), ...o }); };
+    const refresh = () => (care.mode === 'hospitals' ? refreshCare(mapSet, paintSel) : refreshDrivers(mapSet));
+    function paintSel() {
+      const f = facById.get(care.sel);
+      const box = $('#selcard'); if (box) box.remove();
+      if (!f) return;
+      const el = document.createElement('div'); el.id = 'selcard'; el.className = 'card selcard';
+      el.innerHTML = `<div class="fac-head"><span class="hb">H</span><div class="grow"><h3>${esc(f.name)}</h3><div class="muted">${esc(facilityLabel(f))}${f.level ? ' · ' + esc(f.level) : ''} · ${esc(f.area)}${f.distanceKm != null ? ' · <b>' + f.distanceKm + ' km</b>' : ''}</div></div><button type="button" class="x" id="selx" aria-label="Close details">${svg('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
+        <div class="tags">${f.open24 === true ? '<span class="tag ok">Open 24 hours</span>' : f.open24 === false ? '<span class="tag">Daytime only</span>' : '<span class="tag">Hours not confirmed</span>'}</div>
+        ${f.services ? `<div class="muted">${esc(f.services)}</div>` : ''}${contactHtml(f)}
+        <div class="row"><a class="btn" target="_blank" rel="noopener" href="${esc(dirUrl(f))}">Directions</a>${signedIn ? '<button type="button" class="ghost" id="selride">Get a ride</button>' : ''}${safeUrl(f.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(f.website)}">Website</a>` : ''}</div>`;
+      $('#sbody').prepend(el); $('#sbody').scrollTop = 0;
+      $('#selx').onclick = () => { care.sel = null; paintSel(); mapSet({ facilities: [...facById.values()], drivers: [], selId: null }); };
+      const ride = $('#selride'); if (ride) ride.onclick = () => { care.mode = 'ambulance'; care.sel = null; paintMode(); paintSel(); refresh(); };
+    }
+    paintPick(); paintMode(); sizeMapView();
+
+    // --- sheet: tap or swipe the handle
+    const order = ['peek', 'half', 'full'];
+    const grab = $('#grab'); let y0 = null;
+    grab.addEventListener('pointerdown', (e) => { y0 = e.clientY; grab.setPointerCapture(e.pointerId); });
+    grab.addEventListener('pointerup', (e) => {
+      if (y0 == null) return; const dy = e.clientY - y0; y0 = null; let i = order.indexOf(care.sheet);
+      if (Math.abs(dy) < 8) i = care.sheet === 'peek' ? 1 : care.sheet === 'half' ? 2 : 1; else i = Math.max(0, Math.min(2, i + (dy < 0 ? 1 : -1)));
+      care.sheet = order[i]; applySheet(); if (mapHandle) mapHandle.invalidate();
+    });
+    grab.addEventListener('pointercancel', () => { y0 = null; });
+    $('#mback').onclick = () => go(signedIn ? 'home' : 'auth');
+
+    // --- pick-up
+    const useCurrent = async () => {
+      say('Finding your location…'); const p = await locate(); say(p ? '' : 'Could not get your location. You can search by district, or use the map to choose where you are.', !p);
+      if (!p) return; pos = p; paintPick(); refresh(); if (mapHandle) mapHandle.focus(p.lat, p.lng, sheetPx());
+    };
+    $('#locate').onclick = useCurrent; $('#usecur').onclick = useCurrent;
+    const startPick = () => { care.pick = true; $('#cpin').hidden = false; applySheet(); if (mapHandle) { mapHandle.invalidate(); if (pos) mapHandle.focus(pos.lat, pos.lng, 0); } };
+    const endPick = () => { care.pick = false; $('#cpin').hidden = true; applySheet(); if (mapHandle) mapHandle.invalidate(); };
+    $('#usemap').onclick = startPick; $('#pickedit').onclick = startPick;
+    $('#pickcancel').onclick = endPick;
+    $('#pickok').onclick = () => { const c = mapHandle && mapHandle.getCenter(); if (c) { pos = { lat: c.lat, lng: c.lng, manual: true }; paintPick(); } endPick(); refresh(); };
+
+    // --- modes and search
+    document.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { care.mode = b.dataset.mode; care.sel = null; paintMode(); paintSel(); refresh(); }; });
     let timer = null;
-    $('#q').oninput = (e) => { care.q = e.target.value; care.limit = 20; clearTimeout(timer); timer = setTimeout(refreshCare, 300); };
-    document.querySelector('.chips').onclick = (e) => {
+    $('#q').oninput = (e) => { care.q = e.target.value; care.limit = 20; care.sel = null; $('#qclear').hidden = !care.q; clearTimeout(timer); timer = setTimeout(refresh, 300); };
+    $('#q').onfocus = () => { if (care.sheet !== 'full') { care.sheet = 'full'; applySheet(); } };
+    $('#qclear').onclick = () => { care.q = ''; $('#q').value = ''; $('#qclear').hidden = true; refresh(); };
+    $('#chips').onclick = (e) => {
       const c = e.target.closest('[data-chip]'); if (!c) return;
       const v = c.dataset.chip;
-      care.open24 = v === 'open24'; care.kind = v === 'open24' ? '' : v; care.limit = 20;
-      document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', x.dataset.chip === 'open24' ? care.open24 : !care.open24 && care.kind === x.dataset.chip));
-      refreshCare();
+      care.open24 = v === 'open24'; care.kind = v === 'government' ? '' : v === 'health_centre' ? 'health_centre' : care.open24 ? '' : v; care.ownership = v === 'government' ? 'government' : ''; care.limit = 20;
+      document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', chipOn(x.dataset.chip)));
+      refresh();
     };
-    $('#more').onclick = () => { care.limit = Math.min(care.limit + 20, 100); refreshCare(); };
+    $('#more').onclick = () => { care.limit = Math.min(care.limit + 20, 100); refresh(); };
+    $('#results').onclick = (e) => {
+      const r = e.target.closest('[data-fid]'); if (!r) return;
+      care.sel = Number(r.dataset.fid); paintSel(); care.sheet = 'half'; applySheet();
+      const f = facById.get(care.sel); mapSet({ facilities: [...facById.values()], drivers: [], selId: care.sel });
+      if (mapHandle && where(f)) mapHandle.focus(f.lat, f.lng, sheetPx());
+    };
     // The list never waits for the map: on a slow connection the numbers matter more than the pins.
-    mapHandle = createMap($('#map'), (f) => {
-      const card = document.getElementById('fac-' + f.id);
-      if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1600); }
+    mapHandle = createMap($('#map'), {
+      facility: (f) => { care.sel = f.id; care.sheet = care.sheet === 'peek' ? 'half' : care.sheet; applySheet(); paintSel(); mapSet({ facilities: [...facById.values()], drivers: [], selId: f.id }); const el = $('#selcard'); if (el) el.scrollIntoView({ block: 'nearest' }); },
+      driver: () => { const r = document.querySelector('.srow.drv'); if (r) r.scrollIntoView({ block: 'nearest' }); }
     });
-    refreshCare();
+    refresh();
   }
 
-  let careSeq = 0;
-  async function refreshCare() {
+  async function refreshCare(mapSet, paintSel) {
     const seq = ++careSeq;
     const qs = new URLSearchParams({ limit: String(care.limit) });
     if (care.q.trim()) qs.set('q', care.q.trim());
     if (care.kind) qs.set('kind', care.kind);
+    if (care.ownership) qs.set('ownership', care.ownership);
     if (care.open24) qs.set('open24', '1');
     if (pos) { qs.set('lat', pos.lat); qs.set('lng', pos.lng); }
     let data;
     try { data = await api('/api/facilities?' + qs); } catch (e) { say(e.status ? e.message : 'No internet connection. Call ' + cfg.emergencyNumber + ' in an emergency.', true); return; }
-    if (seq !== careSeq || view !== 'care') return; // a newer search or another screen took over
+    if (seq !== careSeq || view !== 'care' || care.mode !== 'hospitals') return; // a newer search or another screen took over
     say('');
     const { facilities, total } = data;
+    facById = new Map(facilities.map((f) => [f.id, f]));
     $('#count').textContent = total ? `Showing ${facilities.length} of ${total}${pos ? ', nearest first' : ''}.` : '';
     $('#more').hidden = facilities.length >= total || care.limit >= 100;
-    $('#results').innerHTML = facilities.length ? facilities.map((f, i) => `<div class="card fac" id="fac-${f.id}">
-      <div class="fac-head"><span class="num">${i + 1}</span><div><h3>${esc(f.name)}</h3>
-      <div class="muted">${esc(KIND[f.kind] || 'Facility')}${f.level ? ' · ' + esc(f.level) : ''} · ${esc(f.area)}${f.distanceKm != null ? ' · <b>' + f.distanceKm + ' km</b>' : ''}</div></div></div>
-      <div class="tags">${f.open24 === true ? '<span class="tag ok">Open 24 hours</span>' : f.open24 === false ? '<span class="tag">Daytime only</span>' : '<span class="tag">Hours not confirmed</span>'}</div>
-      ${f.services ? `<div class="muted">${esc(f.services)}</div>` : ''}
-      ${contactHtml(f)}
-      <div class="row"><a class="btn ghost" target="_blank" rel="noopener" href="${esc(dirUrl(f))}">Directions</a>${safeUrl(f.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(f.website)}">Website</a>` : ''}${f.email ? `<a class="btn ghost" href="mailto:${esc(f.email)}">Email</a>` : ''}</div></div>`).join('')
-      : '<div class="card"><b>No facility found.</b><p class="muted">Try a different spelling, or the name of your district. Facilities in this list are being added; call ' + esc(cfg.emergencyNumber) + ' in an emergency.</p></div>';
-    if (mapHandle) mapHandle.set(facilities, pos);
+    $('#results').innerHTML = facilities.length ? facilities.map((f) => `<button type="button" class="srow" id="fac-${f.id}" data-fid="${f.id}"><span class="hb ${f.kind === 'clinic' ? 'sm' : ''}">${f.kind === 'clinic' ? '+' : 'H'}</span><span class="grow"><b>${esc(f.name)}</b><span class="muted">${esc(facilityLabel(f))} · ${esc(f.area)}${f.distanceKm != null ? ' · <b>' + f.distanceKm + ' km</b>' : ''}${f.open24 === true ? ' · Open 24h' : ''}</span></span><span class="go" aria-hidden="true">${svg('<path d="M7 17 17 7M8 7h9v9"/>')}</span></button>`).join('')
+      : '<div class="card"><b>No facility found.</b><p class="muted">Try a different spelling, or the name of your district. Call ' + esc(cfg.emergencyNumber) + ' in an emergency.</p></div>';
+    paintSel();
+    mapSet({ facilities, drivers: [], selId: care.sel, fit: !care.sel });
   }
 
-  // ---------- maps: Google when a key is configured, OpenStreetMap otherwise ----------
+  async function refreshDrivers(mapSet) {
+    const seq = ++careSeq;
+    const qs = pos ? `?lat=${pos.lat}&lng=${pos.lng}` : '';
+    let list;
+    try { list = (await api('/api/transport/nearby' + qs)).transport; } catch (e) { say(e.status ? e.message : 'No internet connection. Call ' + cfg.emergencyNumber + ' in an emergency.', true); return; }
+    if (seq !== careSeq || view !== 'care' || care.mode === 'hospitals') return;
+    say('');
+    drivers = list.filter((d) => (care.mode === 'ambulance' ? d.kind === 'ambulance' : d.kind !== 'ambulance'));
+    $('#count').textContent = '';
+    $('#more').hidden = true;
+    const none = care.mode === 'ambulance' ? 'No ambulance is listed near you yet.' : 'No boda or car is listed near you yet.';
+    $('#results').innerHTML = (pos ? '' : '<div class="card"><b>Turn on your location</b><p class="muted">Then we can show who is nearest to you. Until then you see drivers for your clinic\'s area.</p></div>')
+      + (drivers.length ? drivers.map((d) => `<div class="srow drv" id="drv-${d.id}"><span class="hb drvi" aria-hidden="true">${d.kind === 'ambulance' ? '🚑' : '🏍'}</span><span class="grow"><b>${esc(d.name)}</b><span class="muted">${esc(d.kindLabel)}${d.area ? ' · ' + esc(d.area) : ''}${d.distanceKm != null ? ' · <b>' + d.distanceKm + ' km</b>' : ''}</span></span>${d.phone ? `<a class="btn callbtn" href="${telHref(d.phone)}" aria-label="Call ${esc(d.name)}">Call</a>` : ''}</div>`).join('')
+        : `<div class="card"><b>${none}</b><p class="muted">Press SOS and we alert your clinic. Or call ${esc(cfg.emergencyNumber)}.</p></div>`)
+      + '<p class="muted">In an emergency, press SOS: the nearest drivers are asked to come for you automatically.</p>';
+    mapSet({ facilities: [], drivers, selId: null, fit: true });
+  }
+
+  // ---------- maps: Google when a key is configured, otherwise a light OpenStreetMap-based map ----------
   let googleLoading = null;
   function loadGoogle() {
     if (!cfg.googleMapsKey) return Promise.reject(new Error('no key'));
@@ -980,86 +1058,87 @@
     return googleLoading;
   }
 
-  function createMap(el, onSelect) {
+  // cb = { facility(f), driver(d) }. impl API: set({facilities, drivers, you, selId, fit, pad}), focus(lat, lng, pad), getCenter(), invalidate(), destroy()
+  function createMap(el, cb) {
     let impl = null, dead = false, last = null;
     const handle = {
       google: false,
-      set(list, you) { last = { list, you }; if (impl) impl.set(list, you); },
+      set(o) { last = o; if (impl) impl.set(o); },
+      focus(lat, lng, pad) { if (impl) impl.focus(lat, lng, pad); },
+      getCenter() { return impl ? impl.getCenter() : null; },
+      invalidate() { if (impl) impl.invalidate(); },
       destroy() { dead = true; if (impl) impl.destroy(); impl = null; },
       fallback() {
         if (impl) impl.destroy();
         el.innerHTML = ''; handle.google = false;
-        impl = leafletMap(el, onSelect);
-        if (impl) { if (last) impl.set(last.list, last.you); }
-        else if (el.isConnected) el.outerHTML = '<p class="muted">The map could not load. The list below still works.</p>';
+        impl = leafletMap(el, cb);
+        if (impl) { if (last) impl.set(last); }
+        else if (el.isConnected) el.innerHTML = '<p class="muted" style="padding:80px 20px">The map could not load. The list below still works.</p>';
       }
     };
     loadGoogle()
-      .then(() => googleMap(el, onSelect))
-      .then((m) => { if (dead) return m.destroy(); impl = m; handle.google = true; if (last) impl.set(last.list, last.you); })
+      .then(() => googleMap(el, cb))
+      .then((m) => { if (dead) return m.destroy(); impl = m; handle.google = true; if (last) impl.set(last); })
       .catch(() => { if (!dead) handle.fallback(); });
     return handle;
   }
 
-  function popupNode(f) {
-    const d = document.createElement('div');
-    d.className = 'pop';
-    const b = document.createElement('b'); b.textContent = f.name; d.appendChild(b);
-    const p = document.createElement('div'); p.textContent = `${KIND[f.kind] || 'Facility'} · ${f.area}`; d.appendChild(p);
-    const tel = bestPhone(f);
-    if (tel) { const a = document.createElement('a'); a.href = telHref(tel); a.textContent = 'Call ' + fmtPhone(tel); d.appendChild(a); d.appendChild(document.createTextNode(' · ')); }
-    const g = document.createElement('a'); g.href = dirUrl(f); g.target = '_blank'; g.rel = 'noopener'; g.textContent = 'Directions'; d.appendChild(g);
-    return d;
-  }
-
-  async function googleMap(el, onSelect) {
-    const { Map, InfoWindow } = await google.maps.importLibrary('maps');
-    const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary('marker');
-    const map = new Map(el, { center: { lat: 1.37, lng: 32.29 }, zoom: 7, mapId: cfg.googleMapId || 'DEMO_MAP_ID', mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'cooperative' });
-    const info = new InfoWindow();
+  async function googleMap(el, cb) {
+    const { Map } = await google.maps.importLibrary('maps');
+    const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+    const map = new Map(el, { center: { lat: 1.37, lng: 32.29 }, zoom: 7, mapId: cfg.googleMapId || 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy', clickableIcons: false });
     let markers = [];
+    const add = (node, lat, lng, title, onClick, z) => { const m = new AdvancedMarkerElement({ map, position: { lat, lng }, content: node, title, zIndex: z || 1 }); if (onClick) m.addListener('click', onClick); markers.push(m); };
     return {
-      set(list, you) {
+      set({ facilities = [], drivers = [], you, selId, fit, pad = 0 }) {
         markers.forEach((m) => { m.map = null; }); markers = [];
         const bounds = new google.maps.LatLngBounds();
-        list.forEach((f, i) => {
-          if (f.lat == null) return;
-          const pin = new PinElement({ glyph: String(i + 1), glyphColor: '#fff', background: f.open24 ? '#0f6e6e' : '#4f6463', borderColor: '#fff' });
-          const m = new AdvancedMarkerElement({ map, position: { lat: f.lat, lng: f.lng }, content: pin.element, title: f.name });
-          m.addListener('click', () => { info.setContent(popupNode(f)); info.open({ map, anchor: m }); onSelect(f); });
-          markers.push(m); bounds.extend({ lat: f.lat, lng: f.lng });
-        });
-        if (you) {
-          const dot = document.createElement('div'); dot.className = 'youdot';
-          markers.push(new AdvancedMarkerElement({ map, position: { lat: you.lat, lng: you.lng }, content: dot, title: 'You are here' }));
-          bounds.extend({ lat: you.lat, lng: you.lng });
-        }
-        if (!bounds.isEmpty()) map.fitBounds(bounds, 40);
-        if (markers.length === 1) map.setZoom(Math.min(map.getZoom() || 14, 14));
+        facilities.forEach((f) => { if (f.lat == null) return; add(markerNode('fac', f, f.id === selId), f.lat, f.lng, f.name, () => cb.facility(f), f.id === selId ? 9 : 2); bounds.extend({ lat: f.lat, lng: f.lng }); });
+        drivers.forEach((d) => { if (d.lat == null) return; add(markerNode('drv', d, false), d.lat, d.lng, d.name, () => cb.driver(d)); bounds.extend({ lat: d.lat, lng: d.lng }); });
+        if (you) { add(markerNode('you'), you.lat, you.lng, 'You are here', null, 10); bounds.extend({ lat: you.lat, lng: you.lng }); }
+        if (fit && !bounds.isEmpty()) { map.fitBounds(bounds, { top: 70, left: 40, right: 40, bottom: pad + 20 }); google.maps.event.addListenerOnce(map, 'idle', () => { if (map.getZoom() > 15) map.setZoom(15); }); }
       },
+      focus(lat, lng, pad) { map.setCenter({ lat, lng }); map.setZoom(15); if (pad) map.panBy(0, pad / 2); },
+      getCenter() { const c = map.getCenter(); return { lat: c.lat(), lng: c.lng() }; },
+      invalidate() { google.maps.event.trigger(map, 'resize'); },
       destroy() { markers.forEach((m) => { m.map = null; }); markers = []; el.innerHTML = ''; }
     };
   }
 
-  function leafletMap(el, onSelect) {
+  function leafletMap(el, cb) {
     if (!window.L) return null;
-    const map = L.map(el, { scrollWheelZoom: false });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-    map.setView([1.37, 32.29], 7);
-    let layer = L.layerGroup().addTo(map);
+    const UG = L.latLngBounds([-1.5, 29.55], [4.25, 35.05]); // Uganda only
+    const map = L.map(el, { zoomControl: false, maxBounds: UG, maxBoundsViscosity: 1, minZoom: 6 });
+    const lockZoom = () => { try { map.setMinZoom(Math.max(6, map.getBoundsZoom(UG, true))); } catch { /* ignore */ } };
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    const tiles = L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTR }).addTo(map);
+    // If OpenStreetMap tiles fail on this network, switch to a backup tile source.
+    let bad = 0, swapped = false;
+    tiles.on('tileerror', () => {
+      if (swapped || ++bad < 3) return;
+      swapped = true; map.removeLayer(tiles);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }).addTo(map);
+    });
+    map.setView([0.3476, 32.5825], 11); // Kampala
+    lockZoom();
+    const layer = L.layerGroup().addTo(map);
+    const icon = (node, size) => L.divIcon({ className: '', html: node, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
     return {
-      set(list, you) {
+      set({ facilities = [], drivers = [], you, selId, fit, pad = 0 }) {
         layer.clearLayers();
-        const bounds = [];
-        list.forEach((f, i) => {
-          if (f.lat == null) return;
-          L.marker([f.lat, f.lng], { title: f.name, icon: L.divIcon({ className: '', html: `<span class="lpin ${f.open24 ? 'h24' : ''}">${i + 1}</span>`, iconSize: [28, 28], iconAnchor: [14, 14] }) })
-            .addTo(layer).bindPopup(popupNode(f)).on('click', () => onSelect(f));
-          bounds.push([f.lat, f.lng]);
-        });
-        if (you) { L.circleMarker([you.lat, you.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#1d5fd0', fillOpacity: 1 }).addTo(layer).bindTooltip('You are here'); bounds.push([you.lat, you.lng]); }
-        if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+        const pts = [];
+        facilities.forEach((f) => { if (f.lat == null) return; L.marker([f.lat, f.lng], { title: f.name, icon: icon(markerNode('fac', f, f.id === selId), 30), zIndexOffset: f.id === selId ? 1000 : 0 }).addTo(layer).on('click', () => cb.facility(f)); pts.push([f.lat, f.lng]); });
+        drivers.forEach((d) => { if (d.lat == null) return; L.marker([d.lat, d.lng], { title: d.name, icon: icon(markerNode('drv', d, false), 34) }).addTo(layer).on('click', () => cb.driver(d)); pts.push([d.lat, d.lng]); });
+        if (you) { L.marker([you.lat, you.lng], { title: 'You are here', icon: icon(markerNode('you'), 22), zIndexOffset: 2000, interactive: false }).addTo(layer); pts.push([you.lat, you.lng]); }
+        // Ignore points outside Uganda so one bad coordinate cannot zoom the map out to the whole continent.
+        const inUg = pts.filter((q) => q[0] > -1.6 && q[0] < 4.4 && q[1] > 29.4 && q[1] < 35.1);
+        if (fit) { map.invalidateSize(); lockZoom(); }
+        if (fit && !inUg.length) map.setView([0.3476, 32.5825], 11);
+        else if (fit) map.fitBounds(inUg, { paddingTopLeft: [40, 70], paddingBottomRight: [40, pad + 20], maxZoom: 15 });
       },
+      focus(lat, lng, pad) { map.fitBounds([[lat, lng]], { paddingTopLeft: [40, 70], paddingBottomRight: [40, (pad || 0) + 20], maxZoom: 15 }); },
+      getCenter() { const c = map.getCenter(); return { lat: c.lat, lng: c.lng }; },
+      invalidate() { map.invalidateSize(); lockZoom(); },
       destroy() { map.remove(); }
     };
   }

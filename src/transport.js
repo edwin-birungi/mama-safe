@@ -25,7 +25,9 @@ function shape(row, from) {
 
 // What a signed-in mother may see: enough to call. Never the base location, notes or staff fields.
 function publicView(p) {
-  return { id: p.id, name: p.name, kind: p.kind, kindLabel: KIND_LABEL[p.kind] || 'Transport', phone: p.phone, area: p.area, distanceKm: p.distanceKm == null ? null : p.distanceKm };
+  return { id: p.id, name: p.name, kind: p.kind, kindLabel: KIND_LABEL[p.kind] || 'Transport', phone: p.phone, area: p.area, distanceKm: p.distanceKm == null ? null : p.distanceKm,
+    // Map position rounded to about 1 km, so a driver's exact base is never shown.
+    lat: p.lat == null ? null : Math.round(p.lat * 100) / 100, lng: p.lng == null ? null : Math.round(p.lng * 100) / 100 };
 }
 
 const byId = (db, id) => {

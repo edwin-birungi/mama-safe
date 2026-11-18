@@ -150,7 +150,8 @@ function createServer(db) {
     const lat = num(query.get('lat')), lng = num(query.get('lng'));
     if (lat !== undefined && !Number.isFinite(lat) || lng !== undefined && !Number.isFinite(lng) || !validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
     const opts = {
-      lat, lng, kind: query.get('kind') || undefined, q: query.get('q') || undefined, open24: query.get('open24') === '1'
+      lat, lng, kind: query.get('kind') || undefined, ownership: query.get('ownership') || undefined,
+      q: query.get('q') || undefined, open24: query.get('open24') === '1'
     };
     const limit = Math.min(Math.max(Number(query.get('limit')) || 200, 1), 500);
     const offset = Math.max(Number(query.get('offset')) || 0, 0);
@@ -392,9 +393,6 @@ function createServer(db) {
     const { mother } = motherAuth(req);
     if (!mother) throw new HttpError(404, 'Register first.');
     if (limited('contact:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
-    if (config.env === 'production' && !sms.configured() && !demo.isDemoPhone(mother.phone)) {
-      throw new HttpError(503, 'SMS sending is not configured, so we cannot send the confirmation code. Set AT_USERNAME and AT_API_KEY on the server, then try again.');
-    }
     const r = contact.requestCode(db, mother);
     if (r.error) throw new HttpError(r.limited ? 429 : 400, r.error);
     if (r.demo) return { json: { ok: true, sentTo: r.to, devCode: r.code, demo: true } };
@@ -516,7 +514,7 @@ function createServer(db) {
       'Content-Security-Policy':
         "default-src 'self'; script-src 'self' https://unpkg.com" + (config.googleMapsKey ? ' https://maps.googleapis.com' : '') + '; ' +
         "style-src 'self' 'unsafe-inline' https://unpkg.com" + (config.googleMapsKey ? ' https://fonts.googleapis.com' : '') + '; ' +
-        "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com" + (config.googleMapsKey ? ' https://maps.gstatic.com https://maps.googleapis.com https://*.ggpht.com https://*.googleusercontent.com' : '') + '; ' +
+        "img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://unpkg.com" + (config.googleMapsKey ? ' https://maps.gstatic.com https://maps.googleapis.com https://*.ggpht.com https://*.googleusercontent.com' : '') + '; ' +
         "font-src 'self' https://fonts.gstatic.com; " +
         "connect-src 'self'" + (config.googleMapsKey ? ' https://maps.googleapis.com https://*.googleapis.com' : '') + "; worker-src 'self' blob:; frame-ancestors 'none'"
     };

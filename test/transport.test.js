@@ -57,10 +57,14 @@ test('nearby without GPS uses her district, ambulances first', () => {
   assert.equal(transport.nearby(db, { area: 'Nowhere' }).length, 0);
 });
 
-test('public view never exposes a driver base location or staff notes', () => {
+test('public view shows only a rounded (about 1 km) map position and never staff notes', () => {
   const { db } = setup();
-  const v = transport.publicView(transport.nearby(db, AT)[0]);
-  assert.deepEqual(Object.keys(v).sort(), ['area', 'distanceKm', 'id', 'kind', 'kindLabel', 'name', 'phone']);
+  const row = transport.nearby(db, AT)[0];
+  const v = transport.publicView(row);
+  assert.deepEqual(Object.keys(v).sort(), ['area', 'distanceKm', 'id', 'kind', 'kindLabel', 'lat', 'lng', 'name', 'phone']);
+  assert.equal(v.lat, Math.round(row.lat * 100) / 100);
+  assert.equal(v.lng, Math.round(row.lng * 100) / 100);
+  assert.notEqual(v.lat, row.lat, 'the exact base is never sent');
 });
 
 test('SOS with GPS asks the closest ambulance plus the nearest others, and tells the mother', () => {
@@ -203,7 +207,7 @@ test('API: drivers list needs sign-in and hides base locations; SOS returns who 
   const near = await api(base, '/api/transport/nearby?lat=0.348&lng=32.583', { token });
   assert.equal(near.status, 200);
   assert.equal(near.body.transport[0].phone, BODA1);
-  assert.equal(near.body.transport[0].lat, undefined);
+  assert.equal(String(near.body.transport[0].lat).length <= 5, true, 'rounded to 2 decimals');
   assert.equal(near.body.transport[0].notes, undefined);
   assert.equal((await api(base, '/api/transport/nearby?lat=999&lng=0', { token })).status, 400);
 
@@ -211,7 +215,7 @@ test('API: drivers list needs sign-in and hides base locations; SOS returns who 
   assert.equal(sos.status, 201);
   assert.equal(sos.body.transport.asked, 3);
   assert.equal(sos.body.transport.nearby[0].phone, BODA1);
-  assert.equal(sos.body.transport.nearby[0].lat, undefined);
+  assert.equal(sos.body.transport.nearby[0].notes, undefined);
 });
 
 test('API: staff can list, add, validate and deactivate drivers', async (t) => {
