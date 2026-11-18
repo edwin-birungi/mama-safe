@@ -33,7 +33,8 @@
     install: '<path d="M12 3.5v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/>',
     question: '<circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.4-1.1.9-1.1 1.7M12 17h.01"/>'
   };
-  let authMode = 'register';
+  // Returning users should see sign-in first; account creation remains one tap away.
+  let authMode = 'login';
   let recoveryCodeToShow = '';
   let recoveryNext = 'login';
   let authPrefill = '';
@@ -170,7 +171,10 @@
       $('#savedRecovery').onclick = async () => {
         const next = recoveryNext; recoveryCodeToShow = '';
         if (next === 'profile' || next === 'home') {
-          try { await loadMe(); go(next === 'profile' ? 'register' : 'home'); }
+          try {
+            await loadMe();
+            go(me.registered ? 'home' : (next === 'profile' ? 'register' : 'home'));
+          }
           catch (err) { say(err.message, true); }
         } else { authMode = 'login'; renderAuth(); say('Password updated. Sign in with your new password.'); }
       };

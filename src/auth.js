@@ -40,7 +40,9 @@ function registerPassword(db, { phone, email = null, password }, now = Date.now(
   if (p.length < PASSWORD_MIN || p.length > 128) return { error: `Choose a password between ${PASSWORD_MIN} and 128 characters.`, status: 400 };
   if (db.prepare('SELECT phone FROM accounts WHERE phone = ?').get(phone)) return { error: 'An account already uses this phone. Sign in instead.', status: 409 };
   if (email && db.prepare('SELECT phone FROM accounts WHERE email = ? COLLATE NOCASE').get(email)) return { error: 'An account already uses this email. Sign in instead.', status: 409 };
-  if (db.prepare('SELECT id FROM mothers WHERE phone = ?').get(phone)) return { error: 'This number already has a MamaSafe profile from the older sign-in flow. If you are still signed in on another device, open Home and set an account password there. Otherwise, you will need to recover that profile after phone verification is restored.', status: 409 };
+  // A mother may already have a profile from the older OTP/USSD flow. Let her
+  // attach a password account to that same phone; the registration route will
+  // recognize the existing profile and take her straight to Home.
   const code = makeRecoveryCode();
   db.prepare('INSERT INTO accounts (phone, email, password_hash, recovery_hash, created_at) VALUES (?,?,?,?,?)')
     .run(phone, email || null, passwordHash(p), recoveryHash(code), new Date(now).toISOString());
