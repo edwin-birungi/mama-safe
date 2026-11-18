@@ -3,15 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0F6E6E">
+<meta name="theme-color" content="#f7faf9">
 <title>MamaSafe facility dashboard</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="dash">
-<header id="top"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.8-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.2 12 21 12 21z"/></svg></span><span class="brand">MamaSafe · Facility dashboard</span></header>
+<header id="top"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.8-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.2 12 21 12 21z"/></svg></span><span class="brand">MamaSafe · Facility dashboard</span><a class="staff-link" href="/" aria-label="Return to the mother app"><span class="staff-full">Mother app</span><span class="staff-short">App</span></a></header>
 <div id="wrap">
   <div id="smswarn" class="warn" hidden>SMS is in dry-run mode: messages are recorded but not sent. Set AT_USERNAME and AT_API_KEY on the server to send them.</div>
+
+  <section class="card setup-card" aria-labelledby="setup-title">
+    <h1 id="setup-title">Connect local care and transport</h1>
+    <p>Use <b>Facilities</b> to confirm each clinic's public numbers, monitored emergency alert mobile, and 24-hour opening status. Use <b>Transport</b> to add consenting ambulance, boda, taxi, or volunteer providers.</p>
+    <p class="muted">For GPS-based matching, enter each provider's base latitude and longitude and service radius. Keep the district too, so people without GPS can still find providers. The app stores this information in its database and uses it in Care and SOS.</p>
+  </section>
 
   <details class="card acc" id="manual">
     <summary><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5C6.5 4.5 9.5 4.5 12 6c2.5-1.5 5.5-1.5 8-.5v13c-2.5-1-5.5-1-8 .5-2.5-1.5-5.5-1.5-8-.5z"/><path d="M12 6v13.5"/></svg></span>First time here? How to use this dashboard</summary>
@@ -24,6 +30,7 @@
         <li><b>Watch for the red warning</b><span class="muted">If a card says <i>The facility was NOT sent an SMS</i>, nobody was told by text. Phone the facility or the mother straight away.</span></li>
       </ol>
       <p class="muted"><b>Transport tab:</b> the drivers who can be asked to collect a mother. Alerts show who was asked and who accepted. Keep numbers current: a wrong number means nobody comes.</p>
+      <p class="muted"><b>Facilities tab:</b> confirm public phone numbers, mark whether a facility is open 24 hours, and add the monitored mobile that receives emergency alerts. An alert mobile is required for SMS notification.</p>
       <p class="muted"><b>Questions tab:</b> questions mothers could not get answered in the app. Call or text her back, then press Done. Each one also arrives by SMS on the facility alert phone.</p>
       <p class="muted"><b>Messages tab:</b> every SMS the system sent or tried to send, with its status. Use it to check that reminders and alerts really went out.</p>
       <div class="callout red"><b>An alert nobody reads is dangerous.</b> Decide who watches this page and the alert phone in every shift, and what happens if an alert is not acknowledged. Escalation is not automatic.</div>
@@ -31,7 +38,7 @@
   </details>
 
   <div class="bar2">
-    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button><button id="tab-transport" aria-pressed="false">Transport</button><button id="tab-questions" aria-pressed="false">Questions</button><button id="tab-msgs" aria-pressed="false">Messages</button></div>
+    <div class="tabs"><button id="tab-alerts" aria-pressed="true">Alerts</button><button id="tab-transport" aria-pressed="false">Transport</button><button id="tab-questions" aria-pressed="false">Questions</button><button id="tab-facilities" aria-pressed="false">Facilities</button><button id="tab-msgs" aria-pressed="false">Messages</button></div>
     <label for="fac" class="muted" style="margin:0">Facility</label>
     <select id="fac"><option value="">All facilities</option></select>
     <button id="sound" class="ghost" type="button" aria-pressed="false">Sound alert: off</button>
@@ -40,18 +47,19 @@
   <p id="err" class="warn" hidden></p>
   <section id="alerts" aria-live="polite"></section>
   <section id="questions" hidden></section>
+  <section id="facilities" hidden></section>
   <section id="transport" hidden>
     <div class="card">
       <b>Emergency transport directory</b>
       <p class="muted">Ambulances, boda riders, taxi drivers and volunteers who agreed to be contacted. When a mother sends an alert, the nearest ones get an SMS and reply <code>GO &lt;alert number&gt;</code>; the first to reply gets her number. They can text <code>BUSY</code> or <code>AVAILABLE</code> at any time. Only add people who agreed, and use a mobile number that receives SMS. Drivers without a GPS base are only found by district.</p>
       <form id="tpform" class="tpform" autocomplete="off">
-        <input type="text" id="tp-name" placeholder="Name" required maxlength="60">
-        <select id="tp-kind" aria-label="Kind"></select>
-        <input id="tp-phone" type="tel" placeholder="Mobile number" required>
-        <input type="text" id="tp-area" placeholder="District">
-        <input type="text" id="tp-lat" inputmode="decimal" placeholder="Base latitude">
-        <input type="text" id="tp-lng" inputmode="decimal" placeholder="Base longitude">
-        <input type="text" id="tp-radius" inputmode="decimal" placeholder="Radius km (15)">
+        <label for="tp-name">Provider or service name<input type="text" id="tp-name" placeholder="Name" required maxlength="60"></label>
+        <label for="tp-kind">Type<select id="tp-kind" aria-label="Provider type"></select></label>
+        <label for="tp-phone">Mobile number<input id="tp-phone" type="tel" placeholder="0772 123 456" required></label>
+        <label for="tp-area">District<input type="text" id="tp-area" placeholder="e.g. Mukono" required></label>
+        <label for="tp-lat">Base latitude (optional)<input type="text" id="tp-lat" inputmode="decimal" placeholder="e.g. 0.3536"></label>
+        <label for="tp-lng">Base longitude (optional)<input type="text" id="tp-lng" inputmode="decimal" placeholder="e.g. 32.7553"></label>
+        <label for="tp-radius">Service radius in km<input type="text" id="tp-radius" inputmode="decimal" placeholder="15 by default"></label>
         <button type="submit">Add driver</button>
       </form>
     </div>

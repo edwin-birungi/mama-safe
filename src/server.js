@@ -69,6 +69,45 @@ function createServer(db) {
     if (!h || now > h.reset) { hits.set(key, { count: 1, reset: now + 60000 }); return false; }
     return ++h.count > max;
   };
+  const reverseCache = new Map();
+  let reverseQueue = Promise.resolve(), lastReverseAt = 0, reversePending = 0;
+  const reversePlace = (lat, lng) => {
+    const key = `${config.reverseGeocoderUrl}:${lat.toFixed(3)},${lng.toFixed(3)}`;
+    const cached = reverseCache.get(key);
+    if (cached && Date.now() - cached.at < 24 * 60 * 60 * 1000) return Promise.resolve(cached.value);
+    if (reversePending >= 20) return Promise.resolve(null);
+    reversePending++;
+    const task = reverseQueue.then(async () => {
+      const wait = Math.max(0, 1100 - (Date.now() - lastReverseAt));
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      lastReverseAt = Date.now();
+      const url = new URL(config.reverseGeocoderUrl);
+      url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lng));
+      url.searchParams.set('zoom', '14');
+      url.searchParams.set('addressdetails', '1');
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json', 'User-Agent': 'MamaSafe/0.1 (location area lookup)' },
+        signal: AbortSignal.timeout(6000)
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      const address = data.address || {};
+      const locality = address.neighbourhood || address.suburb || address.village || address.town || address.municipality || address.city || address.hamlet;
+      const district = address.state_district || address.county || address.city_district;
+      const region = address.state;
+      const parts = [...new Set([locality, district, region, address.country].filter(Boolean).map((x) => String(x).trim()))];
+      const value = parts.length ? { place: parts.join(', '), countryCode: address.country_code || null } : null;
+      if (value) {
+        if (reverseCache.size >= 1000) reverseCache.delete(reverseCache.keys().next().value);
+        reverseCache.set(key, { at: Date.now(), value });
+      }
+      return value;
+    });
+    reverseQueue = task.catch(() => {});
+    return task.catch(() => null).finally(() => { reversePending--; });
+  };
   setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (now > v.reset) hits.delete(k); }, 60000).unref();
 
   function adminCheck(req) {
@@ -144,6 +183,11 @@ function createServer(db) {
       googleMapsKey: config.googleMapsKey, googleMapId: config.googleMapId, helplines: helplines.lines, helplinesChecked: helplines.researched_on
     }
   }));
+  route('GET', '/api/location/reverse', async ({ query }) => {
+    const lat = num(query.get('lat')), lng = num(query.get('lng'));
+    if (lat === undefined || lng === undefined || !Number.isFinite(lat) || !Number.isFinite(lng) || !validCoords(lat, lng)) throw new HttpError(400, 'Bad coordinates');
+    return { json: { location: await reversePlace(lat, lng) } };
+  });
   // Find facilities. lat/lng sorts nearest first; kind, open24 and q (name or district) filter;
   // limit/offset page. alert_phone and internal notes are never included.
   route('GET', '/api/facilities', ({ query }) => {
@@ -421,6 +465,12 @@ function createServer(db) {
     const ok = alerts.acknowledge(db, Number(params[0]), 'dashboard');
     return { status: ok ? 200 : 404, json: { ok } };
   });
+  route('GET', '/api/admin/facilities', ({ req }) => {
+    adminCheck(req);
+    const rows = db.prepare(`SELECT id, code, name, area, kind, phone, emergency_phone, toll_free, alert_phone,
+      open24, contact_confidence, researched_on FROM facilities ORDER BY area, name`).all();
+    return { json: { facilities: rows.map((f) => ({ ...f, open24: f.open24 == null ? null : !!f.open24 })) } };
+  });
   // Staff-maintained contact details. alert_phone must be a MOBILE that can receive SMS.
   route('PATCH', '/api/admin/facilities/:id', ({ req, params, body }) => {
     adminCheck(req);
@@ -433,7 +483,10 @@ function createServer(db) {
       if (body[k] && !v) throw new HttpError(400, `${k} is not a valid number.`);
       sets.push(`${k} = ?`); vals.push(v);
     }
-    if (body.open24 !== undefined) { sets.push('open24 = ?'); vals.push(body.open24 === null ? null : body.open24 ? 1 : 0); }
+    if (body.open24 !== undefined) {
+      if (body.open24 !== null && typeof body.open24 !== 'boolean') throw new HttpError(400, 'open24 must be true, false or null.');
+      sets.push('open24 = ?'); vals.push(body.open24 === null ? null : body.open24 ? 1 : 0);
+    }
     if (sets.length) {
       sets.push('contact_confidence = ?', 'researched_on = ?');
       vals.push('medium', new Date().toISOString().slice(0, 10));
@@ -502,7 +555,7 @@ function createServer(db) {
     if (path.basename(file).startsWith('dashboard')) adminCheck(req);
     const ext = path.extname(file);
     const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
-    if (ext === '.html' || path.basename(file) === 'app.js' || path.basename(file) === 'sw.js') headers['Cache-Control'] = 'no-cache';
+    if (['.html', '.js', '.css', '.svg', '.webmanifest'].includes(ext)) headers['Cache-Control'] = 'no-cache';
     res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
   }

@@ -23,6 +23,9 @@ module.exports = {
   // app falls back to OpenStreetMap, and every facility still has a Google Maps directions link.
   googleMapsKey: env.GOOGLE_MAPS_API_KEY || '',
   googleMapId: env.GOOGLE_MAP_ID || 'DEMO_MAP_ID',
+  // Reverse geocoding is only requested after a user explicitly shares location.
+  // Keep this configurable so the lookup provider can be changed without a code update.
+  reverseGeocoderUrl: env.REVERSE_GEOCODER_URL || 'https://nominatim.openstreetmap.org/reverse',
   // Optional enrolment fee. 0 = free for everyone (payments off). Emergency alerts, the danger-sign
   // check and the hospital finder are ALWAYS free whatever this is set to.
   payments: {

@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="MamaSafe">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f9988f"/><stop offset="1" stop-color="#e45a54"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#42aaa3"/><stop offset="1" stop-color="#147b7d"/></linearGradient>
     <clipPath id="c"><circle cx="60" cy="60" r="53"/></clipPath>
   </defs>
-  <circle cx="60" cy="60" r="56.5" fill="url(#g)" stroke="#ffbf99" stroke-width="3.5"/>
+  <circle cx="60" cy="60" r="56.5" fill="url(#g)" stroke="#a9d9d5" stroke-width="3.5"/>
   <g clip-path="url(#c)" fill="#fff">
     <circle cx="54" cy="34" r="9.5"/><circle cx="46.5" cy="26.5" r="4.6"/>
     <path d="M50 44C42 50 38 62 32 112H92C88 96 87 86 87 76 87 62 77 54 65 50 60 48 58 46 58 44Z"/>
   </g>
-  <path d="M75 82c-7.5-4.8-10.5-8.4-10.5-12a5.3 5.3 0 0 1 10.5-1.6 5.3 5.3 0 0 1 10.5 1.6c0 3.6-3 7.2-10.5 12z" fill="#ee6d67"/>
+  <path d="M75 82c-7.5-4.8-10.5-8.4-10.5-12a5.3 5.3 0 0 1 10.5-1.6 5.3 5.3 0 0 1 10.5 1.6c0 3.6-3 7.2-10.5 12z" fill="#147b7d"/>
 </svg>

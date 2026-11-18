@@ -92,13 +92,14 @@
     notice.className = isError ? 'error' : '';
   }
 
-  function locate(timeout = 6000) {
+  function locate(timeout = 15000) {
     return new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, capturedAt: p.timestamp }),
         () => resolve(null),
-        { enableHighAccuracy: true, timeout, maximumAge: 60000 }
+        // A user explicitly asked for their location: don't silently reuse an old cached fix.
+        { enableHighAccuracy: true, timeout, maximumAge: 0 }
       );
     });
   }
@@ -125,7 +126,7 @@
   }
 
   function signOut() {
-    token = null; me = null; authMode = 'register';
+    token = null; me = null; authMode = 'login';
     store.del('ms_token');
     go('auth');
   }
@@ -502,11 +503,11 @@
     const kx = 100 + R * Math.cos(a), ky = 100 + R * Math.sin(a);
     return `<div class="ring" role="img" aria-label="Week ${weeks} of 40, ${pct} percent of pregnancy">
       <svg viewBox="0 0 200 200" aria-hidden="true">
-        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f9988f"/><stop offset="1" stop-color="#ee6d67"/></linearGradient></defs>
+        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#42aaa3"/><stop offset="1" stop-color="#147b7d"/></linearGradient></defs>
         <circle cx="100" cy="100" r="96" fill="#fff" opacity=".7"/>
-        <circle cx="100" cy="100" r="${R}" fill="none" stroke="#ffd9d2" stroke-width="16"/>
+        <circle cx="100" cy="100" r="${R}" fill="none" stroke="#cce9e6" stroke-width="16"/>
         <circle cx="100" cy="100" r="${R}" fill="none" stroke="url(#rg)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 100 100)"/>
-        <circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="11" fill="#fff" stroke="#ee6d67" stroke-width="4"/>
+        <circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="11" fill="#fff" stroke="#147b7d" stroke-width="4"/>
       </svg>
       <div class="mid"><small>You are in your</small><div class="stage">${tri}</div><small>Pregnancy</small><div class="big">Week ${weeks}</div></div></div>`;
   }
@@ -537,7 +538,6 @@
     const fac = me.facility;
     show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
         <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
-      <button type="button" class="home-emergency" data-go="sos"><span class="home-emergency-icon">SOS</span><span><b>Need urgent help?</b><small>Send an emergency alert or call for help</small></span><span aria-hidden="true">›</span></button>
       ${weekStrip(next && next.date)}
       ${homeRing(pct, tri, g.weeks)}
       <div class="bubbles">
@@ -863,14 +863,14 @@
   // A light grey base map, like the ride apps. Swap TILE_URL for 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' to use plain OpenStreetMap.
   const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   const TILE_ATTR = '&copy; OpenStreetMap contributors';
-  const PIN_SVG = '<svg viewBox="0 0 24 32" width="40" height="54" aria-hidden="true"><path d="M12 0C5.4 0 0 5.2 0 11.7 0 20 12 32 12 32s12-12 12-20.3C24 5.2 18.6 0 12 0z" fill="#ee6d67"/><circle cx="12" cy="11.5" r="4.5" fill="#fff"/></svg>';
+  const PIN_SVG = '<svg viewBox="0 0 24 32" width="40" height="54" aria-hidden="true"><path d="M12 0C5.4 0 0 5.2 0 11.7 0 20 12 32 12 32s12-12 12-20.3C24 5.2 18.6 0 12 0z" fill="#147b7d"/><circle cx="12" cy="11.5" r="4.5" fill="#fff"/></svg>';
   let drivers = [], facById = new Map(), careSeq = 0;
 
   function markerNode(kind, f, sel) {
     const d = document.createElement('div');
     if (kind === 'fac') { d.className = 'mk fac ' + (f.kind || '') + (sel ? ' sel' : ''); d.textContent = f.kind === 'clinic' ? '+' : 'H'; }
     else if (kind === 'drv') { d.className = 'mk drv' + (sel ? ' sel' : ''); d.textContent = f.kind === 'ambulance' ? '🚑' : '🏍'; }
-    else { d.className = 'youdot'; }
+    else { d.className = 'youdot'; d.textContent = 'YOU'; }
     d.title = kind === 'you' ? 'You are here' : f.name;
     return d;
   }
@@ -916,6 +916,7 @@
           <div class="fld pick"><span class="dot"></span><b>Pick up</b><span class="val" id="picktxt"></span><button type="button" id="pickedit" aria-label="Choose pick-up on the map">${svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>')}</button></div>
           <div class="fld where" id="wherefld"><b>Where to</b><input id="q" type="search" placeholder="Type a hospital or district" value="${esc(care.q)}" autocomplete="off" aria-label="Hospital or district"><button type="button" id="qclear" aria-label="Clear search" ${care.q ? '' : 'hidden'}>${svg('<path d="M6 6l12 12M18 6 6 18"/>')}</button></div>
           <div class="uses"><button type="button" class="link" id="usecur">${svg('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')} Use current location</button><button type="button" class="link" id="usemap">Use map ${svg('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>')}</button></div>
+          <p class="location-attribution">Approximate area names by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.</p>
           <div class="chips" id="chips" role="group" aria-label="Filter">${CHIPS.map(([v, t]) => `<button type="button" class="chip" data-chip="${v}" aria-pressed="${chipOn(v)}">${t}</button>`).join('')}</div>
           <p id="count" class="muted" aria-live="polite"></p>
           <div id="results"></div>
@@ -928,7 +929,11 @@
       </section></div>`);
     main.classList.add('mapmode'); document.body.classList.add('mapmode');
     const mv = $('#mapview');
-    const paintPick = () => { $('#picktxt').textContent = pos ? (pos.manual ? 'Point you chose on the map' : 'My current location') : 'Location is off'; };
+    const paintPick = () => {
+      $('#picktxt').textContent = !pos ? 'Location is off'
+        : pos.manual ? 'Point you chose on the map'
+          : `My location · ${pos.place || `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`}${Number.isFinite(pos.accuracy) ? ` · ±${Math.max(1, Math.round(pos.accuracy))} m` : ''}`;
+    };
     const paintMode = () => {
       const hosp = care.mode === 'hospitals';
       $('#wherefld').hidden = !hosp; $('#chips').hidden = !hosp;
@@ -966,8 +971,25 @@
 
     // --- pick-up
     const useCurrent = async () => {
-      say('Finding your location…'); const p = await locate(); say(p ? '' : 'Could not get your location. You can search by district, or use the map to choose where you are.', !p);
-      if (!p) return; pos = p; paintPick(); refresh(); if (mapHandle) mapHandle.focus(p.lat, p.lng, sheetPx());
+      const buttons = [$('#locate'), $('#usecur')].filter(Boolean);
+      buttons.forEach((b) => { b.disabled = true; });
+      say('Getting a fresh location from your device…');
+      try {
+        const p = await locate();
+        if (!p) {
+          say('Could not get a fresh GPS location. Allow location access and precise location in your device settings, or choose a point on the map.', true);
+          return;
+        }
+        say('Looking up your area…');
+        try {
+          const area = await api(`/api/location/reverse?lat=${encodeURIComponent(p.lat)}&lng=${encodeURIComponent(p.lng)}`);
+          if (area.location) p.place = area.location.place;
+        } catch { /* GPS position and nearby search still work if area lookup is unavailable. */ }
+        pos = p;
+        paintPick();
+        await refresh();
+        if (mapHandle) mapHandle.focus(p.lat, p.lng, sheetPx());
+      } finally { buttons.forEach((b) => { b.disabled = false; }); }
     };
     $('#locate').onclick = useCurrent; $('#usecur').onclick = useCurrent;
     const startPick = () => { care.pick = true; $('#cpin').hidden = false; applySheet(); if (mapHandle) { mapHandle.invalidate(); if (pos) mapHandle.focus(pos.lat, pos.lng, 0); } };
@@ -1064,25 +1086,30 @@
 
   // cb = { facility(f), driver(d) }. impl API: set({facilities, drivers, you, selId, fit, pad}), focus(lat, lng, pad), getCenter(), invalidate(), destroy()
   function createMap(el, cb) {
-    let impl = null, dead = false, last = null;
+    let impl = null, dead = false, last = null, queuedFocus = null;
+    const applyQueuedFocus = () => {
+      if (!impl || !queuedFocus) return;
+      impl.focus(...queuedFocus);
+      queuedFocus = null;
+    };
     const handle = {
       google: false,
       set(o) { last = o; if (impl) impl.set(o); },
-      focus(lat, lng, pad) { if (impl) impl.focus(lat, lng, pad); },
+      focus(lat, lng, pad) { if (impl) impl.focus(lat, lng, pad); else queuedFocus = [lat, lng, pad]; },
       getCenter() { return impl ? impl.getCenter() : null; },
       invalidate() { if (impl) impl.invalidate(); },
-      destroy() { dead = true; if (impl) impl.destroy(); impl = null; },
+      destroy() { dead = true; queuedFocus = null; if (impl) impl.destroy(); impl = null; },
       fallback() {
         if (impl) impl.destroy();
         el.innerHTML = ''; handle.google = false;
         impl = leafletMap(el, cb);
-        if (impl) { if (last) impl.set(last); }
+        if (impl) { if (last) impl.set(last); applyQueuedFocus(); }
         else if (el.isConnected) el.innerHTML = '<p class="muted" style="padding:80px 20px">The map could not load. The list below still works.</p>';
       }
     };
     loadGoogle()
       .then(() => googleMap(el, cb))
-      .then((m) => { if (dead) return m.destroy(); impl = m; handle.google = true; if (last) impl.set(last); })
+      .then((m) => { if (dead) return m.destroy(); impl = m; handle.google = true; if (last) impl.set(last); applyQueuedFocus(); })
       .catch(() => { if (!dead) handle.fallback(); });
     return handle;
   }
@@ -1090,7 +1117,11 @@
   async function googleMap(el, cb) {
     const { Map } = await google.maps.importLibrary('maps');
     const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
-    const map = new Map(el, { center: { lat: 1.37, lng: 32.29 }, zoom: 7, mapId: cfg.googleMapId || 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy', clickableIcons: false });
+    const map = new Map(el, {
+      center: { lat: 1.37, lng: 32.29 }, zoom: 7, mapId: cfg.googleMapId || 'DEMO_MAP_ID',
+      restriction: { latLngBounds: { north: 4.25, south: -1.5, west: 29.55, east: 35.05 }, strictBounds: true },
+      disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy', clickableIcons: false
+    });
     let markers = [];
     const add = (node, lat, lng, title, onClick, z) => { const m = new AdvancedMarkerElement({ map, position: { lat, lng }, content: node, title, zIndex: z || 1 }); if (onClick) m.addListener('click', onClick); markers.push(m); };
     return {
@@ -1111,7 +1142,7 @@
 
   function leafletMap(el, cb) {
     if (!window.L) return null;
-    const UG = L.latLngBounds([-1.5, 29.55], [4.25, 35.05]); // Uganda only
+    const UG = L.latLngBounds([-1.5, 29.55], [4.25, 35.05]); // Uganda map bounds.
     const map = L.map(el, { zoomControl: false, maxBounds: UG, maxBoundsViscosity: 1, minZoom: 6 });
     const lockZoom = () => { try { map.setMinZoom(Math.max(6, map.getBoundsZoom(UG, true))); } catch { /* ignore */ } };
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -1133,7 +1164,7 @@
         const pts = [];
         facilities.forEach((f) => { if (f.lat == null) return; L.marker([f.lat, f.lng], { title: f.name, icon: icon(markerNode('fac', f, f.id === selId), 30), zIndexOffset: f.id === selId ? 1000 : 0 }).addTo(layer).on('click', () => cb.facility(f)); pts.push([f.lat, f.lng]); });
         drivers.forEach((d) => { if (d.lat == null) return; L.marker([d.lat, d.lng], { title: d.name, icon: icon(markerNode('drv', d, false), 34) }).addTo(layer).on('click', () => cb.driver(d)); pts.push([d.lat, d.lng]); });
-        if (you) { L.marker([you.lat, you.lng], { title: 'You are here', icon: icon(markerNode('you'), 22), zIndexOffset: 2000, interactive: false }).addTo(layer); pts.push([you.lat, you.lng]); }
+        if (you) { L.marker([you.lat, you.lng], { title: `You are here · ${you.lat.toFixed(5)}, ${you.lng.toFixed(5)}`, icon: icon(markerNode('you'), 38), zIndexOffset: 2000, interactive: false }).addTo(layer); pts.push([you.lat, you.lng]); }
         // Ignore points outside Uganda so one bad coordinate cannot zoom the map out to the whole continent.
         const inUg = pts.filter((q) => q[0] > -1.6 && q[0] < 4.4 && q[1] > 29.4 && q[1] < 35.1);
         if (fit) { map.invalidateSize(); lockZoom(); }
