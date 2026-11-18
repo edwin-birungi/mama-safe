@@ -134,6 +134,8 @@ button:disabled { opacity: .55; cursor: default; transform: none; }
 .quick > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 
 /* ---------- SOS ---------- */
+.pickup-dot { top: 21px; background: #2d8278; }
+.destination-dot { bottom: 20px; background: #e58a26; }
 .sosbtn { width: 224px; height: 224px; border-radius: 50%; border: 8px solid rgba(255, 255, 255, .95); background: radial-gradient(circle at 35% 30%, #d3202b, var(--red) 60%, var(--red-dark)); font-size: 24px; line-height: 1.2; padding: 0 28px; box-shadow: 0 0 0 14px rgba(255, 255, 255, .12), 0 10px 30px rgba(0, 0, 0, .3); display: flex; margin: 28px auto; animation: pulse 2.4s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 14px rgba(255, 255, 255, .12), 0 10px 30px rgba(0, 0, 0, .3); } 50% { box-shadow: 0 0 0 22px rgba(255, 255, 255, .06), 0 10px 30px rgba(0, 0, 0, .3); } }
 .sosview { background: linear-gradient(180deg, #a8131c 0%, #7d0e15 100%); color: #fff; margin: -22px -20px 0; padding: 22px 20px 112px; min-height: calc(100vh - 62px); }
@@ -174,7 +176,7 @@ button:disabled { opacity: .55; cursor: default; transform: none; }
 .pickrow { align-items: flex-start; border-bottom: 1px solid var(--line); padding: 8px 0; }
 .card.flash { outline: 3px solid var(--blue); }
 .youdot { width: 16px; height: 16px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(29, 95, 208, .35); }
-.lpin { width: 28px; height: 28px; border-radius: 14px; background: #4f6463; color: #fff; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font: 700 12px system-ui; }
+.lpin { width: 30px; height: 30px; border-radius: 50%; color: #fff; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font: 800 14px system-ui; box-shadow: 0 2px 6px rgba(25, 45, 40, .35); }
 .lpin.h24 { background: var(--brand); }
 .pop { font: 14px/1.4 system-ui; color: #14302f; }
 .helplines { padding: 12px 16px; }
@@ -405,3 +407,91 @@ input, select, textarea { border-radius: 14px; }
 .chatform input { flex: 1; min-height: 50px; border-radius: 99px; padding: 0 18px; margin: 0; }
 .chatform button { width: 50px; min-width: 50px; padding: 0; border-radius: 50%; }
 .chatform button svg { width: 22px; height: 22px; }
+
+/* ---------- map screen: full-bleed map with a bottom sheet ---------- */
+main.mapmode { padding: 0; animation: none; }
+.mapview { position: relative; overflow: hidden; background: #eceff1; --sh: 340px; }
+.mapview #map { position: absolute; inset: 0; height: auto; margin: 0; border: 0; border-radius: 0; box-shadow: none; background: #eceff1; }
+.mapview .leaflet-control-attribution { font-size: 10px; margin-bottom: calc(var(--sh) + 2px); }
+.mapview .leaflet-top.leaflet-right { top: 8px; }
+.rbtn { position: absolute; z-index: 500; width: 46px; height: 46px; min-height: 46px; min-width: 46px; padding: 0; border-radius: 50%; background: #fff; color: var(--ink); box-shadow: 0 3px 12px rgba(0, 0, 0, .22); }
+.rbtn:hover { background: #fff; filter: none; }
+.rbtn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; }
+.mback { top: 14px; left: 14px; }
+.locate { right: 14px; bottom: calc(var(--sh) + 14px); transition: bottom .25s ease; }
+.mapview[data-state=full] .locate, .mapview[data-state=pick] .locate { display: none; }
+.cpin { position: absolute; z-index: 450; left: 50%; top: 50%; transform: translate(-50%, -100%); pointer-events: none; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .3)); }
+.cpin[hidden] { display: none; }
+.sheet { position: absolute; z-index: 600; left: 0; right: 0; bottom: 0; height: var(--sh); background: #fff; border-radius: 26px 26px 0 0; box-shadow: 0 -8px 28px rgba(0, 0, 0, .16); display: flex; flex-direction: column; transition: height .25s ease; }
+.grab { flex: none; width: 100%; min-height: 30px; height: 30px; padding: 0; background: transparent; box-shadow: none; border-radius: 26px 26px 0 0; touch-action: none; cursor: grab; }
+.grab:hover { background: transparent; filter: none; }
+.grab span { display: block; width: 44px; height: 5px; border-radius: 3px; background: #cfd3d6; margin: 0 auto; }
+.sbody { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 18px; }
+.mapview[data-state=pick] .sbody { display: none; }
+.pickbar { display: none; padding: 4px 16px 16px; gap: 10px; }
+.mapview[data-state=pick] .pickbar { display: grid; }
+.pickbar b { font-size: 16px; }
+.pickbar .row { display: flex; gap: 10px; }
+.pickbar .row button { flex: 1; min-height: 46px; padding: 0 12px; }
+.modes { display: flex; gap: 6px; padding: 4px; margin: 0 0 12px; background: #f1f3f4; border-radius: 99px; }
+.modes button { flex: 1; min-height: 40px; padding: 0 8px; font-size: 14px; background: transparent; color: var(--muted); box-shadow: none; }
+.modes button[aria-pressed=true] { background: #fff; color: var(--brand-dark); box-shadow: 0 1px 6px rgba(0, 0, 0, .14); }
+.fld { display: flex; align-items: center; gap: 10px; min-height: 56px; border-radius: 14px; padding: 0 14px; margin-bottom: 10px; position: relative; }
+.fld > b { font-size: 15px; white-space: nowrap; padding-right: 10px; border-right: 1.5px solid currentColor; line-height: 24px; }
+.fld.pick { background: #f1f3f4; color: var(--ink); }
+.fld.pick .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa0a6; position: absolute; left: -16px; display: none; }
+.fld.pick .val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.fld.pick button, .fld.where button { width: 36px; height: 36px; min-height: 36px; min-width: 36px; padding: 0; background: transparent; color: var(--brand-dark); box-shadow: none; flex: none; }
+.fld button svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+.fld.where { background: #fff; color: #e98a1a; border: 2px solid #f29a2e; padding-right: 8px; }
+.fld.where input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 44px; padding: 0; margin: 0; color: var(--ink); font-size: 16px; border-radius: 0; box-shadow: none; }
+.fld.where input:focus-visible { outline: none; }
+.fld.where:focus-within { box-shadow: 0 0 0 3px rgba(242, 154, 46, .3); }
+.fld[hidden], .chips[hidden], .cpin[hidden] { display: none; }
+.uses { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 2px 0 10px; margin-bottom: 8px; }
+.uses .link { color: var(--ink); font-weight: 700; font-size: 15px; gap: 8px; padding: 0 2px; min-height: 40px; }
+.uses .link svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+.srow { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 2px; text-align: left; background: transparent; color: var(--ink); box-shadow: none; border-radius: 0; border-bottom: 1px solid #eef0f1; font-weight: 400; justify-content: flex-start; }
+.srow:hover { background: var(--brand-wash); filter: none; }
+.srow .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.srow .grow b { font-size: 15.5px; font-weight: 700; line-height: 1.3; }
+.srow .grow .muted { font-size: 13.5px; line-height: 1.35; }
+.srow .go { color: #7b8286; flex: none; }
+.srow .go svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+.hb { flex: none; width: 36px; height: 36px; border-radius: 50%; background: #e5352f; color: #fff; display: flex; align-items: center; justify-content: center; font: 800 16px system-ui; }
+.hb.sm { background: #f08a84; }
+.hb.drvi { background: #fff1de; font-size: 20px; }
+.callbtn { min-height: 42px; padding: 0 20px; flex: none; }
+.selcard { margin: 4px 0 12px; box-shadow: var(--shadow-md); }
+.selcard .grow { flex: 1; min-width: 0; }
+.selcard h3 { margin: 0; font-size: 17px; }
+.selcard .x { width: 34px; height: 34px; min-height: 34px; min-width: 34px; padding: 0; background: #f1f3f4; color: var(--ink); box-shadow: none; flex: none; }
+.selcard .x svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; }
+.selcard .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+/* markers */
+.mk { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); font: 800 15px system-ui; color: #fff; }
+.mk.fac { background: #e5352f; }
+.mk.fac.health_centre { width: 26px; height: 26px; margin: 2px; font-size: 13px; }
+.mk.fac.clinic, .mk.fac.other { width: 22px; height: 22px; margin: 4px; font-size: 14px; background: #f08a84; }
+.mk.fac.sel { transform: scale(1.4); box-shadow: 0 0 0 4px rgba(229, 53, 47, .3), 0 3px 10px rgba(0, 0, 0, .4); }
+.mk.drv { width: 34px; height: 34px; background: #f29a2e; font-size: 18px; }
+.youdot { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); border: 3.5px solid #fff; box-shadow: 0 0 0 0 rgba(29, 95, 208, .5), 0 2px 6px rgba(0, 0, 0, .3); animation: pulse 2s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(29, 95, 208, .5), 0 2px 6px rgba(0, 0, 0, .3); } 100% { box-shadow: 0 0 0 18px rgba(29, 95, 208, 0), 0 2px 6px rgba(0, 0, 0, .3); } }
+@media (prefers-reduced-motion: reduce) { .youdot { animation: none; } .sheet, .locate { transition: none; } }
+@media (min-width: 700px) { .mapview { border-radius: var(--r-lg); margin: 16px 0; } }
+body.mapmode #top, body.mapmode .demobar { display: none; }
+
+/* collapsible forms on Home */
+.fold { padding: 0; overflow: hidden; }
+.fold > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: '›'; font-size: 24px; color: var(--muted, #8a6a66); transition: transform .2s; }
+.fold[open] > summary::after { transform: rotate(90deg); }
+.fold > summary small { display: block; font-weight: 400; color: var(--muted, #8a6a66); margin-top: 2px; }
+.fold .foldbody { padding: 0 16px 16px; }
+.link.back { background: none; border: 0; color: inherit; font-weight: 700; cursor: pointer; }
+
+.leaflet-container { background: #e9eaec; }
+
+/* grey, SafeBoda-like look on top of OpenStreetMap tiles */
+.leaflet-tile-pane { filter: grayscale(.9) brightness(1.06) contrast(.92); }
