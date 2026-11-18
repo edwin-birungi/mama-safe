@@ -31,6 +31,17 @@ Try it:
    curl -d 'from=+256712345678&text=HELP'           localhost:3000/sms/inbound
    ```
 
+## Facility dashboard setup
+
+Open the same site and choose **Facility staff** in the header, or go directly to `/dashboard`. The mother app links to the staff page; the dashboard links back to the mother app. In development the dashboard is open. Before deployment, set `MAMASAFE_ENV=production`, `DASHBOARD_USER`, and a strong `DASHBOARD_PASS`; the server then requires HTTP Basic authentication for the dashboard and its APIs.
+
+Staff setup in the dashboard:
+1. In **Facilities**, confirm each clinic's main, emergency and toll-free numbers. Add the monitored mobile `alert_phone` that should receive SOS texts, and set whether it is open 24 hours. A facility without `alert_phone` still appears in Care, but MamaSafe cannot text it about an emergency.
+2. In **Transport**, add providers who agreed to be listed and contacted: name, type, mobile number, and district. Add their base latitude/longitude and service radius for GPS-based distance matching. District is required so mothers on USSD or without GPS can still match transport. Providers added here are saved in the same SQLite database the mother app reads.
+3. To send real SMS, configure Africa's Talking (`AT_USERNAME`, `AT_API_KEY`, and `AT_SENDER_ID`) and the SMS/USSD callback URLs under **Going live**. Without those settings, the dashboard shows dry-run messages but does not contact facilities or providers.
+
+Keep `data/mamasafe.db` on persistent storage and back it up. The dashboard is a shared staff account, so only give its credentials to people authorized to see maternal alerts and provider contact details.
+
 ## Going live
 
 1. **Africa's Talking account** (https://africastalking.com). Create an app, then request:
@@ -49,6 +60,8 @@ Try it:
 **Find a hospital near me.** The *Find a hospital* screen works without signing in (button on the sign-in page; also *Care* in the app). It sorts by distance from the phone's GPS, searches by district or name, filters by hospital / health centre / clinic / open 24 hours, and shows a map with numbered pins. Every facility has tap-to-call buttons for each number we hold (main line, **emergency line**, **toll-free line**), a Google Maps directions link, and website/email when known. On USSD dial the menu's *Find a hospital*; by SMS text `CLINICS Gulu`.
 
 **Google Maps.** Create a Maps JavaScript API key in Google Cloud, restrict it to your site's referrer (HTTP referrers), and set `GOOGLE_MAPS_API_KEY` (and optionally a Map ID in `GOOGLE_MAP_ID`; the default `DEMO_MAP_ID` is for testing). The app then uses Google Maps with advanced markers. Without a key, or if Google fails to load, it falls back to OpenStreetMap (Leaflet), and every facility still has a "Directions" link that opens Google Maps with no key. Google bills by usage; check their current pricing.
+
+**Current location names.** When someone taps *Use current location*, MamaSafe can request an approximate area name from OpenStreetMap's Nominatim reverse-geocoding service. The coordinates are sent only after that user action; results are cached and lookups are queued to stay under one request per second per app. `REVERSE_GEOCODER_URL` can switch the lookup to another compatible service. The map itself is constrained to Uganda. Area names can be approximate or unavailable where map data is sparse.
 
 **What is in the box (honest summary).** `seed/facilities.uganda.csv` holds 22 real hospitals (national and regional referral hospitals plus a few large private ones). Coordinates are mostly from Wikipedia (about 100 m accuracy at best). Contact numbers were collected from official hospital and directory pages and each row carries `contact_confidence` (`medium`, `low`, `none`), a `source` and `researched_on`. **Most rows have no phone number because none could be confirmed**; the app shows "No phone number on file" rather than guessing. Only Mulago has a facility toll-free line. `seed/helplines.json` lists national lines (999, 112, Uganda Red Cross 0800 211 088, Reproductive Health Uganda 0800 299 003) with sources; Ministry of Health lines seen only in 2020 sources are deliberately left out until confirmed. **Call every number before launch**, then re-check every few months.
 

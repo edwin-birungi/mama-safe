@@ -73,10 +73,27 @@
       : '<div class="card empty"><b>No open questions</b>When a mother sends a question from Ask MamaSafe, it appears here.</div>';
   }
 
+  async function loadFacilities() {
+    const d = await j('/api/admin/facilities');
+    $('#facilities').innerHTML = d.facilities.length ? d.facilities.map((f) => `
+      <form class="card facility-card" data-facility="${f.id}">
+        <div class="facility-head"><div><b>${esc(f.name)}</b><div class="meta">${esc(f.area)} · ${esc(f.kind || 'facility')} · ${esc(f.code)}</div></div><span class="meta">${f.alert_phone ? 'Emergency SMS configured' : 'Emergency SMS not configured'}</span></div>
+        <p class="muted">The alert mobile receives emergency texts. Confirm each number with the facility before saving.</p>
+        <div class="facility-fields">
+          <label>Main phone<input type="tel" name="phone" value="${esc(f.phone || '')}" autocomplete="off"></label>
+          <label>Emergency phone<input type="tel" name="emergency_phone" value="${esc(f.emergency_phone || '')}" autocomplete="off"></label>
+          <label>Toll-free phone<input type="tel" name="toll_free" value="${esc(f.toll_free || '')}" autocomplete="off"></label>
+          <label>Emergency alert mobile<input type="tel" name="alert_phone" value="${esc(f.alert_phone || '')}" autocomplete="off"></label>
+          <label>Open 24 hours<select name="open24"><option value="unknown" ${f.open24 == null ? 'selected' : ''}>Not confirmed</option><option value="true" ${f.open24 === true ? 'selected' : ''}>Yes</option><option value="false" ${f.open24 === false ? 'selected' : ''}>No</option></select></label>
+        </div>
+        <div class="facility-actions"><button type="submit">Save facility</button><span class="meta save-status" role="status" aria-live="polite"></span></div>
+      </form>`).join('') : '<div class="card empty"><b>No facilities found</b>Import facility data to add facilities.</div>';
+  }
+
   async function refresh() {
     try {
       $('#err').hidden = true;
-      if (tab === 'alerts') await loadAlerts(); else if (tab === 'transport') await loadTransport(); else if (tab === 'questions') await loadQuestions(); else await loadMsgs();
+      if (tab === 'alerts') await loadAlerts(); else if (tab === 'transport') await loadTransport(); else if (tab === 'questions') await loadQuestions(); else if (tab === 'facilities') await loadFacilities(); else await loadMsgs();
       if (tab === 'alerts') { const d = await j('/api/admin/outbox'); $('#smswarn').hidden = d.sms.live; }
     } catch (e) { $('#err').textContent = e.message; $('#err').hidden = false; }
   }
@@ -87,7 +104,9 @@
     $('#tab-msgs').setAttribute('aria-pressed', t === 'msgs');
     $('#tab-transport').setAttribute('aria-pressed', t === 'transport');
     $('#tab-questions').setAttribute('aria-pressed', t === 'questions');
+    $('#tab-facilities').setAttribute('aria-pressed', t === 'facilities');
     $('#questions').hidden = t !== 'questions';
+    $('#facilities').hidden = t !== 'facilities';
     $('#transport').hidden = t !== 'transport';
     if (t !== 'alerts') $('#stats').hidden = true;
     $('#alerts').hidden = t !== 'alerts';
@@ -99,6 +118,27 @@
   $('#tab-msgs').onclick = () => setTab('msgs');
   $('#tab-transport').onclick = () => setTab('transport');
   $('#tab-questions').onclick = () => setTab('questions');
+  $('#tab-facilities').onclick = () => setTab('facilities');
+  $('#facilities').addEventListener('submit', async (e) => {
+    const form = e.target.closest('form[data-facility]'); if (!form) return;
+    e.preventDefault();
+    const button = form.querySelector('button[type=submit]'), status = form.querySelector('.save-status');
+    button.disabled = true; status.textContent = 'Saving…';
+    const value = (name) => form.elements[name].value.trim();
+    const open24 = value('open24');
+    const body = {
+      phone: value('phone'), emergency_phone: value('emergency_phone'), toll_free: value('toll_free'), alert_phone: value('alert_phone'),
+      open24: open24 === 'unknown' ? null : open24 === 'true'
+    };
+    try {
+      await j(`/api/admin/facilities/${form.dataset.facility}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      status.textContent = 'Saved.';
+      $('#err').hidden = true;
+    } catch (err) {
+      status.textContent = '';
+      $('#err').textContent = err.message; $('#err').hidden = false;
+    } finally { button.disabled = false; }
+  });
   $('#questions').addEventListener('click', async (e) => {
     const id = e.target.dataset && e.target.dataset.q; if (!id) return;
     e.target.disabled = true;
@@ -139,5 +179,5 @@
   });
 
   refresh();
-  setInterval(refresh, 8000);
+  setInterval(() => { if (tab !== 'facilities') refresh(); }, 8000);
 })();
