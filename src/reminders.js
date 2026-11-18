@@ -5,16 +5,16 @@ const facilities = require('./facilities');
 const sms = require('./sms');
 const payments = require('./payments');
 
-const KINDS = { 3: 'd3', 1: 'd1', 0: 'd0' };
+const KINDS = { 7: 'd7', 3: 'd3', 1: 'd1', 0: 'd0' };
 
 function text(kind, mother, visit, facility) {
   const hello = mother.name ? `Hello ${mother.name}. ` : '';
-  const when = { d3: 'is in 3 days', d1: 'is TOMORROW', d0: 'is TODAY' }[kind];
+  const when = { d7: 'is in 1 week', d3: 'is in 3 days', d1: 'is TOMORROW', d0: 'is TODAY' }[kind];
   const at = facility ? ` at ${facility.name}` : '';
   return `MamaSafe: ${hello}Your antenatal visit ${visit.no} of 8 ${when} (${schedule.pretty(visit.date)})${at}. Please bring your antenatal card.`;
 }
 
-// Sends due reminders (3 days before, 1 day before, on the day) once each, within the daytime
+// Sends due reminders (1 week, 3 days, 1 day before, and on the day) once each, within the daytime
 // window. Safe to call as often as you like.
 function run(db, now = new Date()) {
   const hour = schedule.localHour(now);

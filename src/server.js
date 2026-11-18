@@ -392,6 +392,9 @@ function createServer(db) {
     const { mother } = motherAuth(req);
     if (!mother) throw new HttpError(404, 'Register first.');
     if (limited('contact:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
+    if (config.env === 'production' && !sms.configured() && !demo.isDemoPhone(mother.phone)) {
+      throw new HttpError(503, 'SMS sending is not configured, so we cannot send the confirmation code. Set AT_USERNAME and AT_API_KEY on the server, then try again.');
+    }
     const r = contact.requestCode(db, mother);
     if (r.error) throw new HttpError(r.limited ? 429 : 400, r.error);
     if (r.demo) return { json: { ok: true, sentTo: r.to, devCode: r.code, demo: true } };

@@ -59,6 +59,12 @@
 
   // ---------- phone + link helpers ----------
   const telHref = (p) => 'tel:' + String(p).replace(/[^+\d]/g, '');
+  function whatsappHref(p, message = '') {
+    let digits = String(p || '').replace(/\D/g, '');
+    // Facility numbers are primarily Ugandan: convert local 0-prefixed numbers for wa.me.
+    if (digits.startsWith('0')) digits = '256' + digits.slice(1);
+    return digits ? `https://wa.me/${digits}${message ? '?text=' + encodeURIComponent(message) : ''}` : '';
+  }
   // +256414554001 -> 0414 554 001 (Ugandan numbers); anything else is shown as given.
   function fmtPhone(p) {
     const m = /^\+256(\d{3})(\d{3})(\d{3})$/.exec(p || '');
@@ -77,6 +83,7 @@
   function contactHtml(f) {
     const b = [];
     if (f.phone) b.push(`<a class="btn" href="${telHref(f.phone)}">Call ${esc(fmtPhone(f.phone))}</a>`);
+    if (f.phone) b.push(`<a class="btn ghost" target="_blank" rel="noopener" href="${esc(whatsappHref(f.phone, `Hello, I receive antenatal care at ${f.name}. I need some help.`))}">WhatsApp clinic</a>`);
     if (f.emergency_phone) b.push(`<a class="btn emerg" href="${telHref(f.emergency_phone)}">Emergency ${esc(fmtPhone(f.emergency_phone))}</a>`);
     if (f.toll_free) b.push(`<a class="btn tf" href="${telHref(f.toll_free)}">Toll-free ${esc(fmtPhone(f.toll_free))}</a>`);
     let html = b.length ? `<div class="row">${b.join('')}</div>` : `<p class="muted warn nophone">No phone on file. In an emergency, call ${esc(cfg.emergencyNumber)}.</p>`;
@@ -103,6 +110,7 @@
 
   const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const daysUntil = (d) => Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(isoToday() + 'T00:00:00Z')) / 86400000);
   const isoDaysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
   function show(html, keep) {
@@ -527,6 +535,7 @@
     const done = (me.visits || []).filter((v) => v.status === 'past').length;
     const days = g.days != null ? g.days : g.totalDays % 7;
     const fac = me.facility;
+    const visitInDays = next ? daysUntil(next.date) : null;
     show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
         <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
       <button type="button" class="home-emergency" data-go="sos"><span class="home-emergency-icon">SOS</span><span><b>Need urgent help?</b><small>Send an emergency alert or call for help</small></span><span aria-hidden="true">›</span></button>
@@ -538,10 +547,11 @@
         <div class="bubble"><small>Visits done</small><b>${done} of 8</b></div>
       </div>
       <button type="button" class="askcard" data-go="chat"><span class="ico">${svg(ICON.chat)}</span><span><b>Ask MamaSafe</b><small>Questions about your pregnancy? Get an answer, or send it to your clinic.</small></span></button>
+      <div class="callout" style="margin:16px 0"><b>Remember your antenatal card.</b> Bring it to every visit.</div>
       ${babyCard(g.weeks)}
       <div class="rail">
         <div class="tile fill">${next
-          ? `<h3>Next visit ${next.no} of 8</h3><div class="when">${fmtDate(next.date)}</div><div>${fac ? esc(fac.name) : 'No facility chosen yet'}</div><div class="meter" aria-hidden="true"><span style="width:${Math.round((next.no / 8) * 100)}%"></span></div>${fac && bestPhone(fac) ? `<a class="btn light" href="${telHref(bestPhone(fac))}">Call ${esc(fmtPhone(bestPhone(fac)))}</a>` : ''}`
+          ? `<h3>Next visit ${next.no} of 8</h3><div class="when">${fmtDate(next.date)}</div><div>${fac ? esc(fac.name) : 'No facility chosen yet'}</div>${visitInDays <= 7 ? `<div class="callout" role="status"><b>Your visit is ${visitInDays === 0 ? 'today' : visitInDays === 1 ? 'tomorrow' : `in ${visitInDays} days`}.</b> Bring your antenatal card.</div>` : ''}<div class="meter" aria-hidden="true"><span style="width:${Math.round((next.no / 8) * 100)}%"></span></div>${fac && bestPhone(fac) ? `<a class="btn light" href="${telHref(bestPhone(fac))}">Call ${esc(fmtPhone(bestPhone(fac)))}</a>${fac.phone ? `<a class="btn light" target="_blank" rel="noopener" href="${esc(whatsappHref(fac.phone, `Hello, I receive antenatal care at ${fac.name}. I need some help.`))}">WhatsApp my clinic</a>` : ''}` : ''}`
           : '<h3>No more visits planned</h3><div>Your baby is due soon. Text or tap SOS if you need urgent help.</div>'}</div>
         <div class="tile soft"><h3>Know the danger signs</h3><div>Heavy bleeding, fits, severe headache with blurred vision, or baby moving much less: go to a health facility straight away and press SOS.</div></div>
       </div>
@@ -628,9 +638,12 @@
 
   // ---------- visits ----------
   function renderVisits() {
+    const next = me.visits.find((v) => v.status === 'next');
+    const days = next ? daysUntil(next.date) : null;
     show(`<h1>My visits</h1><p class="muted">8 antenatal contacts, planned from your due date. Dates already passed are shown faded.</p>
+      ${next && days <= 7 ? `<div class="callout" role="status"><b>Your next antenatal visit is ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}.</b> Remember to bring your antenatal card.</div>` : ''}
       ${me.visits.map((v) => `<div class="card visit ${v.status}"><div class="dot">${v.no}</div><div><b>Visit ${v.no} · week ${v.week}</b><div class="muted">${fmtDate(v.date)}${v.status === 'next' ? ' · NEXT' : ''}</div>${v.status === 'next' && me.facility ? `<div class="muted">${esc(me.facility.name)}</div>` : ''}</div></div>`).join('')}
-      <p class="muted">Bring your antenatal card to every visit.</p>`);
+      <div class="callout" style="margin-top:16px"><b>Bring your antenatal card to every visit.</b> Your health worker uses it to follow your care.</div>`);
   }
 
   // ---------- symptom check ----------
