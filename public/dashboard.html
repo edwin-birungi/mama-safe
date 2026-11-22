@@ -3,14 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#f7faf9">
+<meta name="theme-color" content="#fffaf3">
 <title>MamaSafe facility dashboard</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="dash">
-<header id="top"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.8-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.2 12 21 12 21z"/></svg></span><span class="brand">MamaSafe · Facility dashboard</span><a class="staff-link" href="/" aria-label="Return to the mother app"><span class="staff-full">Mother app</span><span class="staff-short">App</span></a></header>
-<div id="wrap">
+<header id="top"><img class="logo" src="/logo.svg" alt=""><span class="brand">MamaSafe <span class="dash-brand-suffix">· Facility dashboard</span></span><span id="staff-tools" hidden><span id="staff-name"></span> <button id="staff-logout" class="ghost" type="button">Sign out</button></span><a class="staff-link" href="/" aria-label="Return to the mother app"><span class="staff-full">Mother app</span><span class="staff-short">App</span></a></header>
+<main id="staff-auth" class="staff-auth">
+  <section class="card staff-auth-card">
+    <h1 id="staff-auth-title">Facility staff sign in</h1>
+    <p class="muted">Sign in to view facility alerts and manage care contacts.</p>
+    <div class="staff-auth-tabs"><button id="staff-login-tab" type="button" aria-pressed="true">Sign in</button><button id="staff-register-tab" class="ghost" type="button" aria-pressed="false">Create staff account</button></div>
+    <form id="staff-auth-form" autocomplete="on">
+      <label id="staff-name-wrap" hidden>Your name<input id="staff-name-input" type="text" maxlength="80" autocomplete="name"></label>
+      <label><span id="staff-identifier-label">Email or dashboard username</span><input id="staff-identifier" type="text" required autocomplete="username"></label>
+      <label>Password<input id="staff-password" type="password" required autocomplete="current-password"></label>
+      <label id="staff-invite-wrap" hidden><span>Staff invite code</span><input id="staff-invite" type="password" autocomplete="off"><small>Ask your MamaSafe administrator for the staff invite code.</small></label>
+      <button id="staff-auth-submit" type="submit">Sign in</button>
+    </form>
+    <p id="staff-auth-error" class="warn" role="alert" hidden></p>
+  </section>
+</main>
+<div id="wrap" hidden>
   <div id="smswarn" class="warn" hidden>SMS is in dry-run mode: messages are recorded but not sent. Set AT_USERNAME and AT_API_KEY on the server to send them.</div>
 
   <section class="card setup-card" aria-labelledby="setup-title">

@@ -11,7 +11,15 @@ module.exports = {
   emergencyNumber: env.EMERGENCY_NUMBER || '999',
   ussdCode: env.USSD_CODE || '*123#',
   smsNumber: env.SMS_NUMBER || '',
-  // Africa's Talking (https://africastalking.com). Without these, SMS runs in dry-run mode:
+  // UGSMS (https://sms.ugmail.co), the main way MamaSafe sends SMS in Uganda. Mothers see the sender name
+  // (senderId, up to 11 letters or digits) instead of a number. The name must be approved on your UGSMS account.
+  ugsms: {
+    apiKey: env.UGSMS_API_KEY || '',
+    senderId: (env.UGSMS_SENDER_ID || 'MamaSafe').slice(0, 11),
+    baseUrl: (env.UGSMS_BASE_URL || 'https://sms.ugmail.co/api/v1').replace(/\/+$/, '')
+  },
+  // Africa's Talking (https://africastalking.com). Still used for USSD and for texts mothers send in, and as a
+  // backup for sending if UGSMS is not set up. Without these, SMS runs in dry-run mode:
   // messages are written to the outbox table and shown on the dashboard but not sent.
   at: {
     username: env.AT_USERNAME || '',
@@ -63,7 +71,7 @@ module.exports = {
     autoDispatch: env.TRANSPORT_AUTO_DISPATCH !== 'false',
     dispatchCount: Number(env.TRANSPORT_DISPATCH_COUNT) || 3   // how many drivers are asked per alert
   },
-  dashboard: { user: env.DASHBOARD_USER || 'admin', pass: env.DASHBOARD_PASS || '' },
+  dashboard: { user: env.DASHBOARD_USER || 'admin', pass: env.DASHBOARD_PASS || '', inviteCode: env.STAFF_INVITE_CODE || '' },
   // If set, /ussd and /sms/inbound require ?key=<value> (put it in the callback URLs).
   webhookKey: env.WEBHOOK_KEY || '',
   // Hour range (East Africa Time) in which reminder SMS may be sent.

@@ -2,7 +2,23 @@
   'use strict';
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  let tab = 'alerts', soundOn = false, knownNew = null, audio = null;
+  const staffStore = {
+    get() {
+      let saved = null;
+      try { saved = localStorage.getItem('ms_staff_token'); } catch { /* try the prior tab-scoped session */ }
+      if (saved) return saved;
+      let legacy = null;
+      try { legacy = sessionStorage.getItem('ms_staff_token'); } catch { return null; }
+      if (legacy) {
+        try { localStorage.setItem('ms_staff_token', legacy); } catch { /* storage unavailable */ }
+        try { sessionStorage.removeItem('ms_staff_token'); } catch { /* storage unavailable */ }
+      }
+      return legacy;
+    },
+    set(value) { try { localStorage.setItem('ms_staff_token', value); } catch { try { sessionStorage.setItem('ms_staff_token', value); } catch { /* storage unavailable */ } } },
+    del() { try { localStorage.removeItem('ms_staff_token'); } catch { /* storage unavailable */ } try { sessionStorage.removeItem('ms_staff_token'); } catch { /* storage unavailable */ } }
+  };
+  let tab = 'alerts', soundOn = false, knownNew = null, audio = null, staffToken = staffStore.get(), refreshTimer = null, authMode = 'login';
 
   const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; };
@@ -11,14 +27,26 @@
     if (!soundOn) return;
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.connect(g); g.connect(audio.destination); o.frequency.value = 880; g.gain.value = 0.15;
-      o.start(); o.stop(audio.currentTime + 0.4);
+      const first = audio.currentTime + 0.03;
+      [0, 0.82, 1.64].forEach((delay, i) => {
+        const start = first + delay;
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.type = 'sine'; o.frequency.value = i === 1 ? 740 : 880;
+        o.connect(g); g.connect(audio.destination);
+        g.gain.setValueAtTime(0.001, start);
+        g.gain.linearRampToValueAtTime(0.16, start + 0.04);
+        g.gain.setValueAtTime(0.16, start + 0.54);
+        g.gain.exponentialRampToValueAtTime(0.001, start + 0.68);
+        o.start(start); o.stop(start + 0.7);
+      });
     } catch { /* no audio */ }
   }
 
   async function j(path, opts) {
-    const r = await fetch(path, opts);
+    opts = opts || {};
+    const headers = { ...(opts.headers || {}) };
+    if (staffToken) headers.Authorization = `Bearer ${staffToken}`;
+    const r = await fetch(path, { ...opts, headers });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Request failed');
     return d;
@@ -178,6 +206,68 @@
     refresh();
   });
 
-  refresh();
-  setInterval(() => { if (tab !== 'facilities') refresh(); }, 8000);
+  function showDashboard(staff) {
+    $('#staff-auth').hidden = true;
+    $('#wrap').hidden = false;
+    $('#staff-tools').hidden = false;
+    $('#staff-name').textContent = staff.name || staff.email || 'Staff';
+    refresh();
+    if (!refreshTimer) refreshTimer = setInterval(() => { if (tab !== 'facilities') refresh(); }, 8000);
+  }
+
+  function showSignIn() {
+    $('#staff-auth').hidden = false;
+    $('#wrap').hidden = true;
+    $('#staff-tools').hidden = true;
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    const registering = mode === 'register';
+    $('#staff-auth-title').textContent = registering ? 'Create a staff account' : 'Facility staff sign in';
+    $('#staff-name-wrap').hidden = !registering;
+    $('#staff-invite-wrap').hidden = !registering;
+    $('#staff-identifier').type = registering ? 'email' : 'text';
+    $('#staff-identifier').autocomplete = registering ? 'email' : 'username';
+    $('#staff-identifier-label').textContent = registering ? 'Work email' : 'Email or dashboard username';
+    $('#staff-password').autocomplete = registering ? 'new-password' : 'current-password';
+    $('#staff-auth-submit').textContent = registering ? 'Create account' : 'Sign in';
+    $('#staff-login-tab').setAttribute('aria-pressed', String(!registering));
+    $('#staff-register-tab').setAttribute('aria-pressed', String(registering));
+    $('#staff-auth-error').hidden = true;
+  }
+
+  $('#staff-login-tab').onclick = () => setAuthMode('login');
+  $('#staff-register-tab').onclick = () => setAuthMode('register');
+  $('#staff-auth-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const error = $('#staff-auth-error'), submit = $('#staff-auth-submit');
+    error.hidden = true; submit.disabled = true;
+    const body = authMode === 'register'
+      ? { name: $('#staff-name-input').value.trim(), email: $('#staff-identifier').value.trim(), password: $('#staff-password').value, inviteCode: $('#staff-invite').value }
+      : { identifier: $('#staff-identifier').value.trim(), password: $('#staff-password').value };
+    try {
+      const data = await j(authMode === 'register' ? '/api/admin/account/register' : '/api/admin/account/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      staffToken = data.token;
+      staffStore.set(staffToken);
+      $('#staff-auth-form').reset();
+      setAuthMode('login');
+      showDashboard(data.staff);
+    } catch (err) { error.textContent = err.message; error.hidden = false; }
+    finally { submit.disabled = false; }
+  };
+  $('#staff-logout').onclick = async () => {
+    try { await j('/api/admin/account/logout', { method: 'POST' }); } catch { /* clear local access even if offline */ }
+    staffToken = null; staffStore.del();
+    showSignIn(); setAuthMode('login');
+  };
+
+  (async () => {
+    if (!staffToken) { showSignIn(); return; }
+    try { const d = await j('/api/admin/session'); showDashboard(d.staff); }
+    catch { staffToken = null; staffStore.del(); showSignIn(); }
+  })();
 })();

@@ -8,6 +8,7 @@ const { importCsv } = require('../src/importTransport');
 const mothers = require('../src/mothers');
 const alerts = require('../src/alerts');
 const auth = require('../src/auth');
+const staffAuth = require('../src/staffAuth');
 const ussd = require('../src/ussd');
 const smsCommands = require('../src/smsCommands');
 const { freshDb, isoAgo, outbox } = require('./helpers');
@@ -194,14 +195,15 @@ async function start() {
   const base = `http://127.0.0.1:${server.address().port}`;
   const code = auth.requestOtp(db, PHONE).code;
   const token = auth.verifyOtp(db, PHONE, code).token;
-  return { db, mother, base, token, close: () => new Promise((r) => server.close(r)) };
+  const staffToken = staffAuth.issueSession(db, { legacyUser: 'Test Staff' });
+  return { db, mother, base, token, staffToken, close: () => new Promise((r) => server.close(r)) };
 }
 const api = (base, p, { method = 'GET', body, token } = {}) =>
   fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined })
     .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
 test('API: drivers list needs sign-in and hides base locations; SOS returns who was asked', async (t) => {
-  const { base, token, close } = await start();
+  const { base, token, staffToken, close } = await start();
   t.after(close);
   assert.equal((await api(base, '/api/transport/nearby?lat=0.348&lng=32.583')).status, 401);
   const near = await api(base, '/api/transport/nearby?lat=0.348&lng=32.583', { token });
@@ -219,15 +221,15 @@ test('API: drivers list needs sign-in and hides base locations; SOS returns who 
 });
 
 test('API: staff can list, add, validate and deactivate drivers', async (t) => {
-  const { base, token, close } = await start();
+  const { base, token, staffToken, close } = await start();
   t.after(close);
-  const list = await api(base, '/api/admin/transport');
+  const list = await api(base, '/api/admin/transport', { token: staffToken });
   assert.equal(list.status, 200);
   assert.equal(list.body.transport.length, 5);
   assert.deepEqual(list.body.kinds, transport.KINDS);
   assert.equal(list.body.transport[0].lat !== undefined, true, 'staff do see base locations');
 
-  const bad = (body) => api(base, '/api/admin/transport', { method: 'POST', body });
+  const bad = (body) => api(base, '/api/admin/transport', { method: 'POST', token: staffToken, body });
   assert.equal((await bad({ name: 'Sam', kind: 'rocket', phone: '0700000199' })).status, 400);
   assert.equal((await bad({ name: '', kind: 'boda', phone: '0700000199' })).status, 400);
   assert.equal((await bad({ name: 'Sam', kind: 'boda', phone: '12' })).status, 400);
@@ -242,21 +244,21 @@ test('API: staff can list, add, validate and deactivate drivers', async (t) => {
   const near = await api(base, '/api/transport/nearby?lat=0.348&lng=32.583', { token });
   assert.equal(near.body.transport[0].name, 'Sam');
 
-  assert.equal((await api(base, `/api/admin/transport/${id}`, { method: 'PATCH', body: { active: false } })).body.provider.active, false);
+  assert.equal((await api(base, `/api/admin/transport/${id}`, { method: 'PATCH', token: staffToken, body: { active: false } })).body.provider.active, false);
   const after = await api(base, '/api/transport/nearby?lat=0.348&lng=32.583', { token });
   assert.ok(!after.body.transport.some((p) => p.name === 'Sam'));
-  assert.equal((await api(base, '/api/admin/transport/9999', { method: 'PATCH', body: { active: false } })).status, 404);
-  assert.equal((await api(base, `/api/admin/transport/${id}`, { method: 'PATCH', body: { kind: 'rocket' } })).status, 400);
+  assert.equal((await api(base, '/api/admin/transport/9999', { method: 'PATCH', token: staffToken, body: { active: false } })).status, 404);
+  assert.equal((await api(base, `/api/admin/transport/${id}`, { method: 'PATCH', token: staffToken, body: { kind: 'rocket' } })).status, 400);
 });
 
 test('API: the dashboard shows which drivers were asked and who accepted', async (t) => {
-  const { db, base, token, close } = await start();
+  const { db, base, token, staffToken, close } = await start();
   t.after(close);
   const sos = await api(base, '/api/alerts', { method: 'POST', token, body: { symptoms: ['sos'], lat: 0.348, lng: 32.583 } });
-  let a = (await api(base, '/api/admin/alerts')).body.alerts[0];
+  let a = (await api(base, '/api/admin/alerts', { token: staffToken })).body.alerts[0];
   assert.deepEqual(a.transport.map((x) => x.status), ['sent', 'sent', 'sent']);
   smsCommands.handle(db, { from: '0700000103', text: `GO ${sos.body.alertId}` });
-  a = (await api(base, '/api/admin/alerts')).body.alerts[0];
+  a = (await api(base, '/api/admin/alerts', { token: staffToken })).body.alerts[0];
   assert.equal(a.transport.find((x) => x.status === 'accepted').phone, TAXI);
   assert.equal(a.transport.filter((x) => x.status === 'taken').length, 2);
 });

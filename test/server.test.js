@@ -2,14 +2,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
+const staffAuth = require('../src/staffAuth');
 const { freshDb, isoAgo, outbox } = require('./helpers');
 
 async function start() {
   const db = freshDb();
+  const staffToken = staffAuth.register(db, { name: 'Test Staff', email: 'staff@example.org', password: 'staff-pass-123' }).token;
   const server = createServer(db);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { db, base, close: () => new Promise((r) => server.close(r)) };
+  return { db, base, staffToken, close: () => new Promise((r) => server.close(r)) };
 }
 
 const json = (base, path, { method = 'GET', body, token } = {}) =>
@@ -20,7 +22,7 @@ const json = (base, path, { method = 'GET', body, token } = {}) =>
   }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
 test('web journey: OTP sign-in, register, profile, alert, dashboard acknowledge', async (t) => {
-  const { db, base, close } = await start();
+  const { db, base, staffToken, close } = await start();
   t.after(close);
 
   // Cannot do anything signed out.
@@ -41,7 +43,10 @@ test('web journey: OTP sign-in, register, profile, alert, dashboard acknowledge'
   const token = ok.body.token;
   assert.equal((await json(base, '/api/otp/verify', { method: 'POST', body: { phone: '0712345678', code: req.body.devCode } })).status, 400); // single use
 
-  assert.deepEqual((await json(base, '/api/me', { token })).body, { registered: false, phone: '+256712345678' });
+  assert.deepEqual((await json(base, '/api/me', { token })).body, {
+    registered: false, phone: '+256712345678',
+    account: { passwordSet: false, emailSet: false, recoverySet: false }
+  });
 
   // Alerts need a profile first.
   assert.equal((await json(base, '/api/alerts', { method: 'POST', token, body: { symptoms: ['bleeding'] } })).status, 404);
@@ -69,15 +74,15 @@ test('web journey: OTP sign-in, register, profile, alert, dashboard acknowledge'
   assert.equal((await json(base, '/api/alerts', { method: 'POST', token, body: { symptoms: ['sos'], lat: 999, lng: 0 } })).status, 400);
 
   // Dashboard sees it and can acknowledge it.
-  const list = await json(base, '/api/admin/alerts');
+  const list = await json(base, '/api/admin/alerts', { token: staffToken });
   assert.equal(list.body.alerts.length, 1);
   assert.equal(list.body.alerts[0].mother_name, 'Amina');
   assert.deepEqual(list.body.alerts[0].symptomLabels, ['Heavy vaginal bleeding', 'Swollen face or hands']);
   assert.equal(list.body.alerts[0].weeks, 24);
   const id = list.body.alerts[0].id;
-  assert.equal((await json(base, `/api/admin/alerts/${id}/ack`, { method: 'POST' })).status, 200);
-  assert.equal((await json(base, `/api/admin/alerts/${id}/ack`, { method: 'POST' })).status, 404);
-  assert.equal((await json(base, '/api/admin/alerts?status=new')).body.alerts.length, 0);
+  assert.equal((await json(base, `/api/admin/alerts/${id}/ack`, { method: 'POST', token: staffToken })).status, 200);
+  assert.equal((await json(base, `/api/admin/alerts/${id}/ack`, { method: 'POST', token: staffToken })).status, 404);
+  assert.equal((await json(base, '/api/admin/alerts?status=new', { token: staffToken })).body.alerts.length, 0);
 });
 
 test('OTP requests are limited per phone', async (t) => {
@@ -141,15 +146,15 @@ test('facility finder API: nearest first, filters, paging, and private fields ne
 });
 
 test('config exposes helplines and the maps key; the admin can set a facility alert mobile', async (t) => {
-  const { db, base, close } = await start();
+  const { db, base, staffToken, close } = await start();
   t.after(close);
   const c = await json(base, '/api/config');
   assert.ok(c.body.helplines.some((l) => l.number === '999'));
   assert.equal(typeof c.body.googleMapsKey, 'string');
   const id = db.prepare("SELECT id FROM facilities WHERE code = 'SCLA'").get().id;
-  const bad = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', body: { alert_phone: 'abc' } });
+  const bad = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', token: staffToken, body: { alert_phone: 'abc' } });
   assert.equal(bad.status, 400);
-  const ok = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', body: { alert_phone: '0777 123 456' } });
+  const ok = await json(base, `/api/admin/facilities/${id}`, { method: 'PATCH', token: staffToken, body: { alert_phone: '0777 123 456' } });
   assert.equal(ok.status, 200);
   assert.equal(db.prepare('SELECT alert_phone FROM facilities WHERE id = ?').get(id).alert_phone, '+256777123456');
 });

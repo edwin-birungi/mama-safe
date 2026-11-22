@@ -3,9 +3,9 @@
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const store = {
-    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
-    del(k) { try { localStorage.removeItem(k); } catch { /* private mode */ } }
+    get(k) { try { const v = localStorage.getItem(k); if (v) return v; } catch { /* try tab storage */ } try { return sessionStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); try { sessionStorage.removeItem(k); } catch { /* storage unavailable */ } } catch { try { sessionStorage.setItem(k, v); } catch { /* storage unavailable */ } } },
+    del(k) { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } try { sessionStorage.removeItem(k); } catch { /* storage unavailable */ } }
   };
 
   const main = $('#main'), nav = $('#nav'), notice = $('#notice');
@@ -33,7 +33,7 @@
     install: '<path d="M12 3.5v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/>',
     question: '<circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.4-1.1.9-1.1 1.7M12 17h.01"/>'
   };
-  // Returning users should see sign-in first; account creation remains one tap away.
+  // New users can register; returning users with a saved valid token go straight to Home.
   let authMode = 'login';
   let recoveryCodeToShow = '';
   let recoveryNext = 'login';
@@ -187,10 +187,21 @@
     const recovering = authMode === 'recover';
     show(`<section class="auth-screen">
       <div class="auth-hero">
-        <p class="eyebrow">PREGNANCY CARE, WITH YOU</p>
-        <h1>Care for you.<br><span>Confidence for every step.</span></h1>
-        <p class="auth-tagline">Thoughtful support from your first visit to delivery.</p>
-        <div class="auth-art" aria-hidden="true"><span class="auth-orbit"></span><span class="auth-orbit inner"></span><img src="/logo.svg" alt=""></div>
+        <p class="eyebrow">MAMASAFE · YOUR PREGNANCY COMPANION</p>
+        <h1>Pregnancy care<br><span>for every step.</span></h1>
+        <p class="auth-tagline">Appointments, wellbeing checks and support for the journey ahead.</p>
+        <div class="auth-art" aria-hidden="true">
+          <span class="auth-orbit"></span><span class="auth-orbit inner"></span>
+          <svg class="baby-art" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="womb" x1="70" y1="42" x2="230" y2="262" gradientUnits="userSpaceOnUse"><stop stop-color="#FFD8B8"/><stop offset="1" stop-color="#EF9575"/></linearGradient><linearGradient id="baby" x1="110" y1="86" x2="212" y2="236" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE4C9"/><stop offset="1" stop-color="#F6AD88"/></linearGradient></defs>
+            <path d="M151 38c-61 0-108 47-108 108 0 59 46 111 110 111 31 0 56-12 78-35-22 8-47 3-59-15-11-16-7-33 6-49 14-18 23-36 19-60-5-34-24-60-46-60Z" fill="url(#womb)" opacity=".64"/>
+            <path d="M119 112c8-24 37-34 59-22 19 11 25 31 18 49-5 12-16 21-29 23-8 2-14 7-17 14-5 12 4 24 17 32 11 7 25 10 38 10-12 19-34 30-59 27-32-4-55-29-54-58 0-16 9-28 24-36 11-6 19-12 22-22 3-9-4-19-15-17-4 1-7 3-10 7-4 6-8 5-10-1-2-2-1-4 0-6l16 0Z" fill="url(#baby)"/>
+            <path d="M163 116c3 0 5 2 5 5s-2 5-5 5-5-2-5-5 2-5 5-5Z" fill="#9B4C3B" opacity=".7"/>
+            <path d="M139 155c12 8 27 9 40 4M145 188c9 9 19 13 31 14" stroke="#E58A6F" stroke-width="7" stroke-linecap="round" opacity=".65"/>
+            <path d="M52 207c38-5 58 12 82 27 20 12 40 19 65 15" stroke="#FFF7E9" stroke-width="12" stroke-linecap="round" opacity=".8"/>
+            <circle cx="80" cy="87" r="7" fill="#FFF7E9" opacity=".8"/><circle cx="224" cy="98" r="5" fill="#FFF7E9" opacity=".75"/>
+          </svg>
+        </div>
       </div>
       <div class="auth-content">
       <div class="auth-heading"><span class="eyebrow">MAMASAFE</span><h2>${registering ? 'Create your account' : recovering ? 'Reset your password' : 'Welcome back'}</h2><p class="muted">${registering ? 'Start with your phone number.' : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.'}</p></div>
@@ -503,11 +514,11 @@
     const kx = 100 + R * Math.cos(a), ky = 100 + R * Math.sin(a);
     return `<div class="ring" role="img" aria-label="Week ${weeks} of 40, ${pct} percent of pregnancy">
       <svg viewBox="0 0 200 200" aria-hidden="true">
-        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#42aaa3"/><stop offset="1" stop-color="#147b7d"/></linearGradient></defs>
+        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d58b70"/><stop offset="1" stop-color="#a34d38"/></linearGradient></defs>
         <circle cx="100" cy="100" r="96" fill="#fff" opacity=".7"/>
-        <circle cx="100" cy="100" r="${R}" fill="none" stroke="#cce9e6" stroke-width="16"/>
+        <circle cx="100" cy="100" r="${R}" fill="none" stroke="#f4d2bd" stroke-width="16"/>
         <circle cx="100" cy="100" r="${R}" fill="none" stroke="url(#rg)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 100 100)"/>
-        <circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="11" fill="#fff" stroke="#147b7d" stroke-width="4"/>
+        <circle cx="${kx.toFixed(1)}" cy="${ky.toFixed(1)}" r="11" fill="#fff" stroke="#a34d38" stroke-width="4"/>
       </svg>
       <div class="mid"><small>You are in your</small><div class="stage">${tri}</div><small>Pregnancy</small><div class="big">Week ${weeks}</div></div></div>`;
   }
@@ -863,7 +874,7 @@
   // A light grey base map, like the ride apps. Swap TILE_URL for 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' to use plain OpenStreetMap.
   const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   const TILE_ATTR = '&copy; OpenStreetMap contributors';
-  const PIN_SVG = '<svg viewBox="0 0 24 32" width="40" height="54" aria-hidden="true"><path d="M12 0C5.4 0 0 5.2 0 11.7 0 20 12 32 12 32s12-12 12-20.3C24 5.2 18.6 0 12 0z" fill="#147b7d"/><circle cx="12" cy="11.5" r="4.5" fill="#fff"/></svg>';
+  const PIN_SVG = '<svg viewBox="0 0 24 32" width="40" height="54" aria-hidden="true"><path d="M12 0C5.4 0 0 5.2 0 11.7 0 20 12 32 12 32s12-12 12-20.3C24 5.2 18.6 0 12 0z" fill="#a34d38"/><circle cx="12" cy="11.5" r="4.5" fill="#fff"/></svg>';
   let drivers = [], facById = new Map(), careSeq = 0;
 
   function markerNode(kind, f, sel) {
