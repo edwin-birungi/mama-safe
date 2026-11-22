@@ -1,12 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="MamaSafe">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#42aaa3"/><stop offset="1" stop-color="#147b7d"/></linearGradient>
-    <clipPath id="c"><circle cx="60" cy="60" r="53"/></clipPath>
+    <linearGradient id="badge" x1="18" y1="8" x2="104" y2="112" gradientUnits="userSpaceOnUse"><stop stop-color="#c97559"/><stop offset="1" stop-color="#8e3f31"/></linearGradient>
+    <linearGradient id="figure" x1="36" y1="26" x2="87" y2="98" gradientUnits="userSpaceOnUse"><stop stop-color="#fff8ec"/><stop offset="1" stop-color="#f8dfc9"/></linearGradient>
+    <clipPath id="circle"><circle cx="60" cy="60" r="53"/></clipPath>
   </defs>
-  <circle cx="60" cy="60" r="56.5" fill="url(#g)" stroke="#a9d9d5" stroke-width="3.5"/>
-  <g clip-path="url(#c)" fill="#fff">
-    <circle cx="54" cy="34" r="9.5"/><circle cx="46.5" cy="26.5" r="4.6"/>
-    <path d="M50 44C42 50 38 62 32 112H92C88 96 87 86 87 76 87 62 77 54 65 50 60 48 58 46 58 44Z"/>
+  <circle cx="60" cy="60" r="57" fill="url(#badge)" stroke="#f1c7aa" stroke-width="3"/>
+  <g clip-path="url(#circle)">
+    <circle cx="51" cy="34" r="12" fill="url(#figure)"/>
+    <path d="M42 46c-8 7-12 18-15 44l-4 23h74l-7-29c-3-13-13-22-26-25l-8-3-14-10Z" fill="url(#figure)"/>
+    <path d="M55 55c8-8 24-5 29 5 4 8 1 17-7 22-5 3-12 3-17 0-5-3-8-9-7-15 1-5 4-9 8-12-5-3-10-3-14 1" fill="#e9a580"/>
+    <path d="M68 77c-5-3-7-6-7-9a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 3-2 6-7 9Z" fill="#9a4838"/>
+    <path d="M33 90c15 8 36 9 57 2" stroke="#f2b99a" stroke-width="4" stroke-linecap="round" opacity=".8"/>
   </g>
-  <path d="M75 82c-7.5-4.8-10.5-8.4-10.5-12a5.3 5.3 0 0 1 10.5-1.6 5.3 5.3 0 0 1 10.5 1.6c0 3.6-3 7.2-10.5 12z" fill="#147b7d"/>
 </svg>

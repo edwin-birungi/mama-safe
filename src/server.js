@@ -20,6 +20,7 @@ const sms = require('./sms');
 const messages = require('./messages');
 const reminders = require('./reminders');
 const auth = require('./auth');
+const staffAuth = require('./staffAuth');
 const payments = require('./payments');
 const ussd = require('./ussd');
 const smsCommands = require('./smsCommands');
@@ -111,18 +112,16 @@ function createServer(db) {
   setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (now > v.reset) hits.delete(k); }, 60000).unref();
 
   function adminCheck(req) {
-    if (!config.dashboard.pass) {
-      if (config.env === 'production') throw new HttpError(503, 'Set DASHBOARD_PASS to enable the dashboard.');
-      return; // development: open, with a warning logged at startup
-    }
     const h = req.headers.authorization || '';
+    if (h.startsWith('Bearer ')) {
+      const principal = staffAuth.current(db, h.slice(7));
+      if (principal) return principal;
+    }
     if (h.startsWith('Basic ')) {
       const [u, ...rest] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');
-      if (auth.safeEqual(u, config.dashboard.user) && auth.safeEqual(rest.join(':'), config.dashboard.pass)) return;
+      if (config.dashboard.pass && auth.safeEqual(u, config.dashboard.user) && auth.safeEqual(rest.join(':'), config.dashboard.pass)) return { name: u, legacy: true };
     }
-    const err = new HttpError(401, 'Authentication required');
-    err.headers = { 'WWW-Authenticate': 'Basic realm="MamaSafe dashboard"' };
-    throw err;
+    throw new HttpError(401, 'Please sign in to continue.');
   }
 
   function webhookCheck(query) {
@@ -297,7 +296,8 @@ function createServer(db) {
     }
     const result = auth.loginPassword(db, { identifier, password: body.password });
     if (result.error) throw new HttpError(result.status, result.error);
-    const mother = mothersSvc.byPhone(db, identifier.startsWith('+') ? identifier : db.prepare('SELECT phone FROM accounts WHERE email = ? COLLATE NOCASE').get(identifier).phone);
+    const account = db.prepare('SELECT phone FROM accounts WHERE phone = ? OR email = ? COLLATE NOCASE').get(identifier, identifier);
+    const mother = account && mothersSvc.byPhone(db, account.phone);
     return { json: { token: result.token, registered: !!mother } };
   });
   route('POST', '/api/account/password', ({ req, body, ip }) => {
@@ -453,7 +453,46 @@ function createServer(db) {
     return { json: profile(mothersSvc.byId(db, mother.id)) };
   });
 
-  // Dashboard API (HTTP Basic auth)
+  // Staff account creation and sign-in. Shared dashboard credentials remain usable during migration.
+  route('POST', '/api/admin/account/register', ({ body, ip }) => {
+    if (limited('staff-register:' + ip, 8)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const name = String(body.name || '').trim().slice(0, 80);
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    if (!name) throw new HttpError(400, 'Enter your name.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new HttpError(400, 'Enter a valid email address.');
+    if (config.env === 'production') {
+      if (!config.dashboard.inviteCode) throw new HttpError(503, 'Staff account creation is not configured. Ask the system administrator to set STAFF_INVITE_CODE.');
+      if (!auth.safeEqual(String(body.inviteCode || ''), config.dashboard.inviteCode)) throw new HttpError(403, 'The staff invite code is incorrect.');
+    }
+    try { return { status: 201, json: staffAuth.register(db, { name, email, password }) }; }
+    catch (e) { throw e.status ? new HttpError(e.status, e.message) : e; }
+  });
+  route('POST', '/api/admin/account/login', ({ body, ip }) => {
+    if (limited('staff-login:' + ip, 12)) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+    const identifier = String(body.identifier || '').trim();
+    const password = String(body.password || '');
+    if (identifier.includes('@')) {
+      const signedIn = staffAuth.login(db, { email: identifier.toLowerCase(), password });
+      if (signedIn) return { json: signedIn };
+    }
+    if (config.dashboard.pass && auth.safeEqual(identifier, config.dashboard.user) && auth.safeEqual(password, config.dashboard.pass)) {
+      const token = staffAuth.issueSession(db, { legacyUser: config.dashboard.user });
+      return { json: { token, staff: { name: config.dashboard.user, legacy: true } } };
+    }
+    throw new HttpError(401, 'Email or password is incorrect.');
+  });
+  route('GET', '/api/admin/session', ({ req }) => {
+    const staff = adminCheck(req);
+    return { json: { staff } };
+  });
+  route('POST', '/api/admin/account/logout', ({ req }) => {
+    const h = req.headers.authorization || '';
+    staffAuth.logout(db, h.startsWith('Bearer ') ? h.slice(7) : '');
+    return { json: { ok: true } };
+  });
+
+  // Dashboard API (staff session or legacy shared credentials)
   route('GET', '/api/admin/alerts', ({ req, query }) => {
     adminCheck(req);
     const status = query.get('status') || undefined;
@@ -545,14 +584,13 @@ function createServer(db) {
   });
   route('GET', '/api/admin/outbox', ({ req }) => {
     adminCheck(req);
-    return { json: { sms: { live: sms.configured() }, messages: db.prepare('SELECT * FROM outbox ORDER BY id DESC LIMIT 100').all() } };
+    return { json: { sms: { live: sms.configured(), provider: sms.provider() }, messages: db.prepare('SELECT * FROM outbox ORDER BY id DESC LIMIT 100').all() } };
   });
 
   function serveStatic(req, res, pathname) {
     let rel = pathname === '/' ? '/index.html' : pathname === '/dashboard' ? '/dashboard.html' : pathname;
     const file = path.normalize(path.join(PUBLIC, rel));
     if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) throw new HttpError(404, 'Not found');
-    if (path.basename(file).startsWith('dashboard')) adminCheck(req);
     const ext = path.extname(file);
     const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
     if (['.html', '.js', '.css', '.svg', '.webmanifest'].includes(ext)) headers['Cache-Control'] = 'no-cache';
@@ -617,12 +655,12 @@ function seedFacilities(db) {
 function main() {
   const db = open(config.dbPath);
   seedFacilities(db);
-  if (!config.dashboard.pass) {
-    console.warn(config.env === 'production'
-      ? 'WARNING: DASHBOARD_PASS is not set; the dashboard is disabled.'
-      : 'DEVELOPMENT: dashboard is open (no DASHBOARD_PASS set).');
+  if (config.env === 'production' && !config.dashboard.inviteCode && !config.dashboard.pass) {
+    console.warn('WARNING: Set STAFF_INVITE_CODE to enable staff account registration (or DASHBOARD_USER and DASHBOARD_PASS for legacy access).');
+  } else if (config.env !== 'production' && !config.dashboard.pass) {
+    console.warn('DEVELOPMENT: staff account creation is open; dashboard data still requires sign-in.');
   }
-  if (!sms.configured()) console.warn('SMS is in DRY-RUN mode: messages are recorded but not sent. Set AT_USERNAME and AT_API_KEY to send.');
+  if (!sms.configured()) console.warn('SMS is in DRY-RUN mode: messages are recorded but not sent. Set UGSMS_API_KEY (and UGSMS_SENDER_ID) to send.');
   const server = createServer(db);
   server.listen(config.port, () => console.log(`MamaSafe listening on http://localhost:${config.port}`));
   const tick = () => { try { const n = reminders.run(db); if (n) console.log(`Queued ${n} visit reminder(s).`); } catch (e) { console.error('reminders failed', e); } };

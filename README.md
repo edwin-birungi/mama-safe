@@ -33,14 +33,14 @@ Try it:
 
 ## Facility dashboard setup
 
-Open the same site and choose **Facility staff** in the header, or go directly to `/dashboard`. The mother app links to the staff page; the dashboard links back to the mother app. In development the dashboard is open. Before deployment, set `MAMASAFE_ENV=production`, `DASHBOARD_USER`, and a strong `DASHBOARD_PASS`; the server then requires HTTP Basic authentication for the dashboard and its APIs.
+Open the same site and choose **Facility staff** in the header, or go directly to `/dashboard`. Staff can create individual accounts and sign in with their work email and password. In development, account creation is open. In production, set `MAMASAFE_ENV=production` and a strong, private `STAFF_INVITE_CODE`; share it only with staff you authorize to access maternal alerts and provider contact details. Existing `DASHBOARD_USER` and `DASHBOARD_PASS` credentials can still sign in while staff move to individual accounts.
 
 Staff setup in the dashboard:
 1. In **Facilities**, confirm each clinic's main, emergency and toll-free numbers. Add the monitored mobile `alert_phone` that should receive SOS texts, and set whether it is open 24 hours. A facility without `alert_phone` still appears in Care, but MamaSafe cannot text it about an emergency.
 2. In **Transport**, add providers who agreed to be listed and contacted: name, type, mobile number, and district. Add their base latitude/longitude and service radius for GPS-based distance matching. District is required so mothers on USSD or without GPS can still match transport. Providers added here are saved in the same SQLite database the mother app reads.
-3. To send real SMS, configure Africa's Talking (`AT_USERNAME`, `AT_API_KEY`, and `AT_SENDER_ID`) and the SMS/USSD callback URLs under **Going live**. Without those settings, the dashboard shows dry-run messages but does not contact facilities or providers.
+3. To send real SMS, configure UGSMS (`UGSMS_API_KEY`, and `UGSMS_SENDER_ID`, which defaults to `MamaSafe`; Africa's Talking `AT_*` is still needed for USSD and texts mothers send in) and the SMS/USSD callback URLs under **Going live**. Without those settings, the dashboard shows dry-run messages but does not contact facilities or providers.
 
-Keep `data/mamasafe.db` on persistent storage and back it up. The dashboard is a shared staff account, so only give its credentials to people authorized to see maternal alerts and provider contact details.
+Keep `data/mamasafe.db` on persistent storage and back it up. Staff accounts and sessions are stored in this database. Accounts currently share the same dashboard permissions, so only invite people authorized to see maternal alerts and provider contact details. Set `STAFF_INVITE_CODE` to a long random value, for example one generated with `openssl rand -hex 24`.
 
 ## Going live
 
@@ -52,7 +52,7 @@ Keep `data/mamasafe.db` on persistent storage and back it up. The dashboard is a
    - Incoming SMS: `https://YOUR-DOMAIN/sms/inbound?key=YOUR_WEBHOOK_KEY`
 3. **Facility data and Google Maps.** See the next section.
 4. **Host it.** Any small server works. `Dockerfile` included. Put it behind HTTPS (Caddy, nginx, a platform's built-in TLS), set `TRUST_PROXY=true`, mount `data/` on persistent storage and **back it up**.
-5. **Set the environment** (see `.env.example`): `MAMASAFE_ENV=production`, `GOOGLE_MAPS_API_KEY`, `DASHBOARD_PASS`, `WEBHOOK_KEY`, `AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID`, `USSD_CODE`, `SMS_NUMBER`.
+5. **Set the environment** (see `.env.example`): `MAMASAFE_ENV=production`, `GOOGLE_MAPS_API_KEY`, `STAFF_INVITE_CODE`, `WEBHOOK_KEY`, `UGSMS_API_KEY`, `UGSMS_SENDER_ID`, `AT_USERNAME`, `AT_API_KEY`, `USSD_CODE`, `SMS_NUMBER`.
 6. Test with the Africa's Talking **sandbox** (`AT_SANDBOX=true`) and a USSD simulator before real mothers use it.
 
 ## Facility data, Google Maps and contact numbers

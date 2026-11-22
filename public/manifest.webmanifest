@@ -4,7 +4,7 @@
   "description": "Antenatal visit reminders, danger-sign check and emergency alerts.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fff6f3",
-  "theme_color": "#fff6f3",
+  "background_color": "#fffaf3",
+  "theme_color": "#fffaf3",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
 }

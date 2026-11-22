@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "engines": { "node": ">=22.5" },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
     "import:facilities": "node --disable-warning=ExperimentalWarning scripts/import-facilities.js",
     "import:transport": "node --disable-warning=ExperimentalWarning scripts/import-transport.js"
