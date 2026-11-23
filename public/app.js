@@ -38,6 +38,8 @@
   let recoveryCodeToShow = '';
   let recoveryNext = 'login';
   let authPrefill = '';
+  let authStep = '';
+  let authDraft = {};
 
   async function api(path, opts = {}) {
     const res = await fetch(path, {
@@ -126,7 +128,7 @@
   }
 
   function signOut() {
-    token = null; me = null; authMode = 'login';
+    token = null; me = null; authMode = 'login'; authStep = ''; authDraft = {};
     store.del('ms_token');
     go('auth');
   }
@@ -143,6 +145,7 @@
       if (v === 'tour') return renderTour(0);
       if (v === 'guide') return renderGuide();
       if (v === 'register') return await renderRegister();
+      if (v === 'contact') return renderContactSetup();
       if (v === 'home') return renderHome();
       if (v === 'visits') return renderVisits();
       if (v === 'sos') return renderSos();
@@ -183,8 +186,34 @@
     }
 
     const registering = authMode === 'register';
+    const otpMode = authMode === 'otp';
     const loggingIn = authMode === 'login';
     const recovering = authMode === 'recover';
+    const codeStep = authStep === 'code' && (registering || otpMode);
+    const title = registering ? (codeStep ? 'Check your messages' : 'Create your account') : otpMode ? (codeStep ? 'Check your messages' : 'Sign in with a code') : recovering ? 'Reset your password' : 'Welcome back';
+    const sub = registering ? (codeStep ? `We sent a 6-digit code to ${esc(authDraft.phone)}.` : 'Takes about a minute. We will text you a code to confirm your number.')
+      : otpMode ? (codeStep ? `We sent a 6-digit code to ${esc(authDraft.phone)}.` : 'No password needed. We text a code to your phone.')
+      : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.';
+    const submitText = registering ? (codeStep ? 'Create my account' : 'Send me a code') : otpMode ? (codeStep ? 'Sign in' : 'Send me a code') : recovering ? 'Reset password' : 'Sign in';
+    const codeField = `<label for="code" style="margin-top:0">6-digit code</label>
+          <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required>
+          <p class="muted auth-note" style="margin:6px 0 0">The code expires in 10 minutes. <button class="link" id="resendCode" type="button">Send a new code</button> · <button class="link" id="changeNumber" type="button">Use a different number</button></p>`;
+    const fields = registering
+      ? (codeStep ? codeField : `<label for="phone" style="margin-top:0">Phone number <span class="muted">(required)</span></label>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || '')}" required>
+          <label for="email">Email <span class="muted">(optional)</span></label>
+          <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="${esc(authDraft.email || '')}">
+          <label for="password">Create a password <span class="muted">(at least 8 characters)</span></label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+          <label for="confirm">Confirm password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`)
+      : otpMode
+        ? (codeStep ? codeField : `<label for="phone" style="margin-top:0">Phone number</label>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || authPrefill || '')}" required>`)
+        : `<label for="identifier" style="margin-top:0">Phone number or email</label>
+          <input id="identifier" type="text" autocomplete="username" placeholder="Phone number or email" value="${esc(authPrefill)}" required>
+          ${recovering ? `<label for="recovery">Recovery code</label><input id="recovery" type="text" autocomplete="off" autocapitalize="characters" required>
+            <label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+            <label for="confirm">Confirm new password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
+            : `<label for="password">Password</label><input id="password" type="password" autocomplete="current-password" maxlength="128" required>`}`;
     show(`<section class="auth-screen">
       <div class="auth-hero">
         <p class="eyebrow">MAMASAFE · YOUR PREGNANCY COMPANION</p>
@@ -204,46 +233,67 @@
         </div>
       </div>
       <div class="auth-content">
-      <div class="auth-heading"><span class="eyebrow">MAMASAFE</span><h2>${registering ? 'Create your account' : recovering ? 'Reset your password' : 'Welcome back'}</h2><p class="muted">${registering ? 'Start with your phone number.' : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.'}</p></div>
+      <div class="auth-heading"><span class="eyebrow">MAMASAFE</span><h2>${title}</h2><p class="muted">${sub}</p></div>
       <div class="auth-tabs" role="tablist" aria-label="Account action">
         <button type="button" data-auth="register" aria-selected="${registering}">Create account</button>
-        <button type="button" data-auth="login" aria-selected="${loggingIn}">Sign in</button>
+        <button type="button" data-auth="login" aria-selected="${loggingIn || otpMode || recovering}">Sign in</button>
       </div>
       <form id="accountForm" class="card auth-form">
-        ${registering ? `<label for="phone" style="margin-top:0">Phone number <span class="muted">(required)</span></label>
-          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required>
-          <label for="email">Email <span class="muted">(optional)</span></label>
-          <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com">
-          <label for="password">Create a password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
-          <label for="confirm">Confirm password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
-          : `<label for="identifier" style="margin-top:0">Phone number or email</label>
-          <input id="identifier" type="text" autocomplete="username" placeholder="Phone number or email" value="${esc(authPrefill)}" required>
-          ${recovering ? `<label for="recovery">Recovery code</label><input id="recovery" type="text" autocomplete="off" autocapitalize="characters" required>
-            <label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
-            <label for="confirm">Confirm new password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
-            : `<label for="password">Password</label><input id="password" type="password" autocomplete="current-password" maxlength="128" required>`}`}
-        <button class="full" type="submit">${registering ? 'Create my account' : recovering ? 'Reset password' : 'Sign in'}</button>
-        ${registering ? '<p class="muted auth-note">After signup, save the recovery code so you can reset your password without SMS.</p>' : ''}
+        ${fields}
+        <button class="full" type="submit">${submitText}</button>
+        ${registering && !codeStep ? '<p class="muted auth-note">After signup you will get a recovery code. Save it so you can reset your password without SMS.</p>' : ''}
       </form>
-      ${loggingIn ? '<button class="link full" id="forgotPassword" type="button">Forgot your password?</button>' : recovering ? '<button class="link full" id="backToLogin" type="button">Back to sign in</button>' : ''}
+      ${loggingIn ? '<button class="link full" id="otpLink" type="button">Sign in with a text-message code instead</button><button class="link full" id="forgotPassword" type="button">Forgot your password?</button>' : (recovering || otpMode) ? '<button class="link full" id="backToLogin" type="button">Back to sign in</button>' : ''}
       </div></section>`);
-    document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => { authMode = b.dataset.auth; renderAuth(); }; });
-    if ($('#forgotPassword')) $('#forgotPassword').onclick = () => { authMode = 'recover'; renderAuth(); };
-    if ($('#backToLogin')) $('#backToLogin').onclick = () => { authMode = 'login'; renderAuth(); };
+    const resetStep = () => { authStep = ''; };
+    document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => { authMode = b.dataset.auth; resetStep(); authDraft = {}; renderAuth(); }; });
+    if ($('#forgotPassword')) $('#forgotPassword').onclick = () => { authMode = 'recover'; resetStep(); renderAuth(); };
+    if ($('#otpLink')) $('#otpLink').onclick = () => { authMode = 'otp'; resetStep(); authDraft = { phone: $('#identifier').value.includes('@') ? '' : $('#identifier').value }; renderAuth(); };
+    if ($('#backToLogin')) $('#backToLogin').onclick = () => { authMode = 'login'; resetStep(); renderAuth(); };
+    if ($('#changeNumber')) $('#changeNumber').onclick = () => { resetStep(); renderAuth(); };
+    // Ask the server to text a code. In development the code is shown on screen instead.
+    const sendCode = async (phone) => {
+      const r = await api('/api/otp/request', { method: 'POST', body: { phone } });
+      authDraft.phone = phone;
+      return r.devCode ? `Development code: ${r.devCode}` : '';
+    };
+    if ($('#resendCode')) $('#resendCode').onclick = async (e) => {
+      e.currentTarget.disabled = true;
+      try { const dev = await sendCode(authDraft.phone); say(dev || 'A new code is on its way.'); }
+      catch (err) { say(err.message, true); }
+      finally { if ($('#resendCode')) $('#resendCode').disabled = false; }
+    };
     $('#accountForm').onsubmit = async (e) => {
       e.preventDefault();
       const btn = $('#accountForm button[type=submit]');
-      if ((registering || recovering) && $('#password').value !== $('#confirm').value) return say('Those passwords do not match.', true);
+      if (((registering && !codeStep) || recovering) && $('#password').value !== $('#confirm').value) return say('Those passwords do not match.', true);
       btn.disabled = true;
       try {
+        if (registering && !codeStep) {
+          authDraft = { phone: $('#phone').value.trim(), email: $('#email').value.trim(), password: $('#password').value };
+          const dev = await sendCode(authDraft.phone);
+          authStep = 'code'; renderAuth(); say(dev || 'We sent you a code. Enter it below.');
+          return;
+        }
+        if (otpMode && !codeStep) {
+          const dev = await sendCode($('#phone').value.trim());
+          authStep = 'code'; renderAuth(); say(dev || 'We sent you a code. Enter it below.');
+          return;
+        }
+        if (otpMode) {
+          const r = await api('/api/otp/verify', { method: 'POST', body: { phone: authDraft.phone, code: $('#code').value } });
+          token = r.token; store.set('ms_token', token); authStep = ''; authDraft = {};
+          await loadMe(); go(me.registered ? 'home' : 'register');
+          return;
+        }
         const r = registering
-          ? await api('/api/account/register', { method: 'POST', body: { phone: $('#phone').value, email: $('#email').value, password: $('#password').value } })
+          ? await api('/api/account/register', { method: 'POST', body: { phone: authDraft.phone, email: authDraft.email, password: authDraft.password, code: $('#code').value } })
           : recovering
             ? await api('/api/account/recover', { method: 'POST', body: { identifier: $('#identifier').value, recoveryCode: $('#recovery').value, password: $('#password').value } })
             : await api('/api/account/login', { method: 'POST', body: { identifier: $('#identifier').value, password: $('#password').value } });
         if (registering) {
           token = r.token; store.set('ms_token', token);
-          recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; renderAuth();
+          recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; authStep = ''; authDraft = {}; renderAuth();
         } else if (recovering) {
           recoveryCodeToShow = r.recoveryCode; recoveryNext = 'login'; authMode = 'recovery-code'; renderAuth();
         } else {
@@ -252,8 +302,8 @@
         }
       } catch (err) {
         if (registering && err.status === 409 && /An account already uses this (phone|email)/.test(err.message)) {
-          authPrefill = err.message.includes('email') ? $('#email').value : $('#phone').value;
-          authMode = 'login'; renderAuth();
+          authPrefill = err.message.includes('email') ? authDraft.email : authDraft.phone;
+          authMode = 'login'; authStep = ''; renderAuth();
           say('An account already exists. Sign in with its phone or email and password.');
           return;
         }
@@ -276,8 +326,9 @@
     show(`<p class="eyebrow">Set up your profile · step 2 of 2</p><h1>Set up your care</h1>
         <p class="muted">A few details to set up your care.</p>
       <form id="f">
-        <label for="name">First name</label>
-        <input id="name" type="text" autocomplete="given-name" maxlength="40" required>
+        <label for="name">Full name</label>
+        <input id="name" type="text" autocomplete="name" maxlength="80" placeholder="e.g. Amina Nansubuga" required>
+        <p class="muted" style="margin:-2px 0 8px">Enter your first and family names.</p>
         <label for="lmp">First day of your last period</label>
         <input id="lmp" type="date" min="${isoDaysAgo(280)}" max="${isoToday()}" required>
         <label for="fsearch">Your clinic or hospital</label>
@@ -285,8 +336,9 @@
         <button class="ghost" type="button" id="loc" style="margin-top:10px">${pos ? 'Location shared ✓' : 'Share my location'}</button>
         <p id="locnote" class="muted location-note">Share a one-time location to add a location record to your registration and find nearby care. You can continue without it.</p>
         <div id="fres" class="pick" role="radiogroup" aria-label="Choose your facility"></div>
-      <label for="contact">Emergency contact <span class="muted">(optional)</span></label>
-        <input id="contact" type="tel" inputmode="tel" autocomplete="off" placeholder="Husband, mother, friend (optional)">
+      <label for="contact">Emergency contact phone number <span class="muted">(recommended)</span></label>
+        <input id="contact" type="tel" inputmode="tel" autocomplete="off" placeholder="0772 123 456">
+        <p class="muted" style="margin:-2px 0 8px">Someone we can text if you send an SOS. You can skip this now and add it later. We will remind you on Home.</p>
         <label class="check"><input id="sms" type="checkbox" checked> Send visit reminders by SMS (when available)</label>
         <button class="full" type="submit">Create my profile</button>
       </form>`);
@@ -324,7 +376,7 @@
       e.preventDefault();
       const btn = $('#f button[type=submit]'); btn.disabled = true;
       try {
-        me = await api('/api/register', { method: 'POST', body: { name: $('#name').value, lmp: $('#lmp').value, facilityId: chosen, contactPhone: $('#contact').value, smsOptin: $('#sms').checked, location: pos } });
+        me = await api('/api/register', { method: 'POST', body: { name: $('#name').value, lmp: $('#lmp').value, facilityId: chosen, contactPhone: $('#contact').value.trim() || undefined, smsOptin: $('#sms').checked, location: pos } });
         go(store.get('ms_tour_done') ? 'home' : 'tour');
       } catch (err) { say(err.message, true); btn.disabled = false; }
     };
@@ -537,6 +589,18 @@
     return `<div class="week" aria-label="This week">${out}</div>`;
   }
 
+  // The emergency contact never blocks sign-up. Until it is added and confirmed, Home keeps reminding her.
+  function contactReminder() {
+    const m = me && me.mother; if (!m || m.contactVerified) return '';
+    return m.contactPhone
+      ? `<div class="remind" role="status"><span class="ico">${svg(ICON.shield)}</span><div><b>Confirm your emergency contact</b><p>We texted ${esc(fmtPhone(m.contactPhone))}. Ask them for the 6-digit code and enter it.</p></div><button type="button" data-go="contact">Confirm now</button></div>`
+      : `<div class="remind" role="status"><span class="ico">${svg(ICON.shield)}</span><div><b>Add an emergency contact</b><p>Choose someone we can text if you ever send an SOS. It takes one minute.</p></div><button type="button" data-go="contact">Add now</button></div>`;
+  }
+  function contactStatusCard() {
+    const m = me && me.mother; if (!m || !m.contactVerified) return '';
+    return `<div class="card contactrow"><div><b>Emergency contact</b><div class="muted">${esc(fmtPhone(m.contactPhone))} · confirmed ✓</div></div><button type="button" class="ghost" data-go="contact">Change</button></div>`;
+  }
+
   function renderHome() {
     const g = me.gestation, pct = Math.min(100, Math.round((g.totalDays / 280) * 100));
     const next = me.next;
@@ -547,8 +611,10 @@
     const done = (me.visits || []).filter((v) => v.status === 'past').length;
     const days = g.days != null ? g.days : g.totalDays % 7;
     const fac = me.facility;
-    show(`<div class="greet"><div><h1>${hello}${me.mother.name ? ', ' + esc(me.mother.name) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
+    const firstName = String(me.mother.name || '').trim().split(/\s+/)[0];
+    show(`<div class="greet"><div><h1>${hello}${firstName ? ', ' + esc(firstName) : ''}</h1><p>It's week ${g.weeks}, day ${days + 1}</p></div>
         <button type="button" class="cal-btn" data-go="visits" aria-label="My 8 visits">${svg(ICON.calendar)}</button></div>
+      ${contactReminder()}
       ${weekStrip(next && next.date)}
       ${homeRing(pct, tri, g.weeks)}
       <div class="bubbles">
@@ -574,22 +640,16 @@
       </div>
       ${payCard()}
       ${basicPhoneCard()}
-      ${contactCard()}
       ${me.account && me.account.passwordSet && me.account.recoverySet ? '' : `<details class="card fold"><summary><span><b>Set up account recovery</b><small>Add a password so you can always get back in</small></span></summary>
         <form id="passwordSetup" class="foldbody"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. The code lets you reset your password without SMS.</p>
           <label for="accountEmail">Email <span class="muted">(optional)</span></label><input id="accountEmail" type="email" autocomplete="email">
           <label for="accountPassword">New password</label><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
           <label for="accountConfirm">Confirm password</label><input id="accountConfirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
           <button class="full" type="submit">Save password and recovery code</button></form></details>`}
-      <h2>Settings</h2>
-      <div class="card"><label class="check"><input id="optin" type="checkbox" ${me.mother.smsOptin ? 'checked' : ''}> SMS visit reminders (when available)</label>
-      <button class="ghost full" id="out" type="button">Sign out</button></div>`);
+      ${contactStatusCard()}
+      <div class="card account-actions"><button class="ghost full" id="out" type="button">Sign out</button></div>`);
     wirePay();
-    wireContact();
     document.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => (b.dataset.go === 'guide' ? openGuide() : go(b.dataset.go)); });
-    $('#optin').onchange = async (e) => {
-      try { me = await api('/api/me', { method: 'PATCH', body: { smsOptin: e.target.checked } }); say('Saved.'); } catch (err) { say(err.message, true); }
-    };
     $('#out').onclick = signOut;
     const passwordSetup = $('#passwordSetup');
     if (passwordSetup) passwordSetup.onsubmit = async (e) => {
@@ -604,45 +664,58 @@
     };
   }
 
-  // Emergency contact: save the number, text it a code, and type the code in. Proves the number is right and that
-  // the person agrees. Alerts still go to an unconfirmed contact, because an emergency must not wait on this.
-  function contactCard() {
-    const m = me.mother;
-    const state = !m.contactPhone ? '' : m.contactVerified ? ' <span class="pill mild">CONFIRMED</span>' : ' <span class="pill urgent">NOT CONFIRMED</span>';
-    const note = !m.contactPhone ? 'Someone we text if you press SOS.'
-      : m.contactVerified ? 'They will be texted if you press SOS.'
-        : 'Press the button and we text a code to their phone. Ask them for it. It proves the number is right and that they agree.';
-    return `<details class="card fold" id="cfold"${m.contactPhone && !m.contactVerified ? ' open' : ''}><summary><span><b>Emergency contact</b>${state}<small>${m.contactPhone ? esc(fmtPhone(m.contactPhone)) : 'Not added yet. Tap to add.'}</small></span></summary>
-      <div class="foldbody"><div class="muted">${note}</div>
-        <label for="cphone">Their phone number</label>
-        <input id="cphone" type="tel" inputmode="tel" autocomplete="off" value="${esc(m.contactPhone ? fmtPhone(m.contactPhone) : '')}" placeholder="0772 123 456">
-        <button class="ghost full" id="csave" type="button">Save number</button>
-        ${m.contactPhone && !m.contactVerified ? `<button class="full" id="csend" type="button">Send code to their phone</button>
-        <div id="cverify" hidden><label for="ccode">Code from their phone</label>
-          <input id="ccode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits">
-          <button class="full" id="cconfirm" type="button">Confirm</button></div>
-        <p class="muted" id="chint"></p>` : ''}
-      </div></details>`;
-  }
-  function wireContact() {
-    const save = $('#csave');
-    if (!save) return;
-    save.onclick = async () => {
-      try { me = await api('/api/me', { method: 'PATCH', body: { contactPhone: $('#cphone').value } }); say('Saved.'); renderHome(); } catch (err) { say(err.message, true); }
+  // Adding and confirming the emergency contact. Optional: she can leave at any time and finish later.
+  function renderContactSetup() {
+    const currentPhone = me && me.mother && me.mother.contactPhone ? fmtPhone(me.mother.contactPhone) : '';
+    show(`<button type="button" class="link back" id="contactBack">← Home</button><h1>${me && me.mother && me.mother.contactPhone ? 'Confirm your emergency contact' : 'Add an emergency contact'}</h1>
+      <p class="muted">We’ll text this person a code. Ask them to share it with you so we can confirm they agree to be your emergency contact.</p>
+      <form id="contactSetupForm" class="card">
+        <label for="setupContactPhone">Emergency contact phone number</label>
+        <input id="setupContactPhone" type="tel" inputmode="tel" autocomplete="off" value="${esc(currentPhone)}" placeholder="0772 123 456" required>
+        <button class="full" type="submit">Send confirmation code</button>
+      </form>
+      <section id="contactCodePanel" class="card" hidden>
+        <p id="contactCodeSent" class="muted" role="status" aria-live="polite"></p>
+        <label for="setupContactCode">Code from their phone</label>
+        <input id="setupContactCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits" required>
+        <button class="full" id="confirmSetupContact" type="button">Confirm and continue</button>
+        <button class="ghost full" id="resendSetupContact" type="button">Send another code</button>
+      </section>
+      <p id="contactSetupError" class="warn" role="alert" hidden></p>
+      <button class="link full" id="contactLater" type="button">Not now, I will do this later</button>`);
+    const form = $('#contactSetupForm'), send = form.querySelector('button[type=submit]');
+    const panel = $('#contactCodePanel'), status = $('#contactCodeSent'), error = $('#contactSetupError');
+    const showError = (message) => { error.textContent = message; error.hidden = false; };
+    const requestCode = async () => {
+      error.hidden = true;
+      const result = await api('/api/contact/request', { method: 'POST' });
+      status.textContent = `A code was sent to ${fmtPhone(result.sentTo)}. Ask them for the code. It expires in 10 minutes.` + (result.devCode ? ` Development code: ${result.devCode}.` : '');
+      panel.hidden = false;
+      $('#setupContactCode').value = '';
     };
-    const send = $('#csend');
-    if (send) send.onclick = async () => {
-      send.disabled = true;
+    form.onsubmit = async (e) => {
+      e.preventDefault(); error.hidden = true; send.disabled = true;
       try {
-        const r = await api('/api/contact/request', { method: 'POST' });
-        $('#cverify').hidden = false;
-        $('#chint').textContent = `A code was texted to ${fmtPhone(r.sentTo)}. Ask them for it.` + (r.devCode ? ` (development code: ${r.devCode})` : '');
-      } catch (err) { say(err.message, true); } finally { send.disabled = false; }
+        me = await api('/api/me', { method: 'PATCH', body: { contactPhone: $('#setupContactPhone').value } });
+        await requestCode();
+      } catch (err) { showError(err.message); }
+      finally { send.disabled = false; }
     };
-    const confirm = $('#cconfirm');
-    if (confirm) confirm.onclick = async () => {
-      try { me = await api('/api/contact/verify', { method: 'POST', body: { code: $('#ccode').value } }); say('Emergency contact confirmed.'); renderHome(); } catch (err) { say(err.message, true); }
+    $('#resendSetupContact').onclick = async (e) => {
+      const button = e.currentTarget; button.disabled = true;
+      try { await requestCode(); }
+      catch (err) { showError(err.message); }
+      finally { button.disabled = false; }
     };
+    $('#confirmSetupContact').onclick = async (e) => {
+      const button = e.currentTarget; button.disabled = true; error.hidden = true;
+      try {
+        me = await api('/api/contact/verify', { method: 'POST', body: { code: $('#setupContactCode').value } });
+        go('home'); say('Emergency contact confirmed. Thank you!');
+      } catch (err) { showError(err.message); }
+      finally { button.disabled = false; }
+    };
+    $('#contactBack').onclick = () => go('home'); $('#contactLater').onclick = () => go('home');
   }
 
   // ---------- visits ----------
@@ -654,40 +727,73 @@
   }
 
   // ---------- symptom check ----------
+  // Pick what you feel, then get one clear answer with the next step as buttons.
   async function renderCheck() {
     const { symptoms } = await api('/api/symptoms');
-    const groups = [['emergency', 'Danger signs'], ['urgent', 'Needs a check-up soon'], ['mild', 'Common and usually mild']];
-    show(`<button class="ghost" id="checkBack" type="button" style="margin-bottom:12px">← Back to Home</button>
-      <h1>How are you feeling?</h1><p class="muted">Choose every symptom you have, then tap Check. This guide cannot diagnose you.</p>
-      <p id="symptomCount" class="muted" aria-live="polite">No symptoms selected</p>
-      <form id="f">${groups.map(([lvl, title]) => `<section class="sympgroup"><h2><span class="pill ${lvl}">${lvl === 'emergency' ? 'ACT NOW' : lvl === 'urgent' ? 'TODAY' : 'COMMON'}</span> ${title}</h2>` +
-        symptoms.filter((s) => s.level === lvl).map((s) => `<label class="check"><input type="checkbox" name="s" value="${esc(s.id)}"> ${esc(s.label)}</label>`).join('') + '</section>').join('')}
-        <button class="full" type="submit">See what to do</button></form><div id="res" aria-live="polite"></div>
-      <div class="row" style="margin-top:16px"><button class="ghost" type="button" data-check-go="care">Find a health facility</button><button class="danger" type="button" data-check-go="sos">Emergency SOS</button></div>`);
-    $('#checkBack').onclick = () => go('home');
-    document.querySelectorAll('[data-check-go]').forEach((b) => { b.onclick = () => go(b.dataset.checkGo); });
-    document.querySelectorAll('input[name=s]').forEach((box) => { box.onchange = () => {
-      const n = document.querySelectorAll('input[name=s]:checked').length;
-      $('#symptomCount').textContent = n ? `${n} symptom${n === 1 ? '' : 's'} selected` : 'No symptoms selected';
-    }; });
-    $('#f').onsubmit = async (e) => {
-      e.preventDefault();
-      const ids = [...document.querySelectorAll('input[name=s]:checked')].map((i) => i.value);
-      if (!ids.length) { $('#res').innerHTML = '<div class="card" role="status"><b>Select a symptom first</b><p class="muted">Tick one or more items above. If you feel something is wrong, contact your health worker.</p></div>'; return; }
-      const submit = $('#f button[type=submit]'); submit.disabled = true; submit.textContent = 'Checking…';
-      try {
-      const r = await api('/api/triage', { method: 'POST', body: { symptoms: ids } });
-      const titles = { emergency: 'Go to a health facility now', urgent: 'Get checked today', mild: 'Mention it at your next visit', none: 'Nothing selected' };
-      $('#res').innerHTML = `<div class="result ${r.level}"><h2>${titles[r.level]}</h2><p style="margin:0">${esc(r.advice)}</p>
-        ${r.level === 'emergency' ? `<button class="full danger" id="alert" type="button">Send emergency alert</button><a class="btn full ghost" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a><button type="button" class="full ghost" data-result-go="ambulance">Find an ambulance</button>` : r.level === 'urgent' ? `<button type="button" class="full ghost" data-result-go="care">Find a health facility</button>` : ''}
-        ${r.level === 'mild' ? '<p class="muted">If symptoms worsen or you are worried, seek care sooner.</p>' : ''}</div>`;
-      const a = $('#alert');
-      if (a) a.onclick = () => sendAlert(r.matched);
-      document.querySelectorAll('[data-result-go]').forEach((b) => { b.onclick = () => go(b.dataset.resultGo); });
-      $('#res').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      } catch (err) { say(err.message || 'Could not check symptoms. Please try again.', true); }
-      finally { if ($('#f button[type=submit]')) { $('#f button[type=submit]').disabled = false; $('#f button[type=submit]').textContent = 'See what to do'; } }
+    const groups = [
+      ['emergency', 'Danger signs', 'Go to a health facility straight away'],
+      ['urgent', 'Needs a check-up soon', 'Get checked today'],
+      ['mild', 'Common and usually mild', 'Tell your health worker at your next visit']
+    ];
+    const label = Object.fromEntries(symptoms.map((x) => [x.id, x.label]));
+    const picked = new Set();
+    const draw = () => {
+      show(`<button type="button" class="link back" id="checkBack">← Home</button>
+        <h1>How are you feeling?</h1>
+        <p class="muted">Tap everything you feel. We will tell you what to do next.</p>
+        <div class="sosnudge"><span>Emergency right now?</span><button type="button" class="danger" data-check-go="sos">Open SOS</button></div>
+        <form id="f" novalidate>${groups.map(([lvl, title, hint]) => `<section class="sympgroup ${lvl}"><h2>${title}</h2><p class="muted">${hint}</p>
+          <div class="symlist">${symptoms.filter((x) => x.level === lvl).map((x) => `<label class="sym"><input type="checkbox" name="s" value="${esc(x.id)}" ${picked.has(x.id) ? 'checked' : ''}><span>${esc(x.label)}</span></label>`).join('')}</div></section>`).join('')}
+          <p class="muted fine">This guide cannot diagnose you. If you are worried, contact your health worker.</p>
+          <div class="checkbar"><span id="symptomCount" aria-live="polite"></span><button class="full" id="go" type="submit" disabled>See what to do</button></div>
+        </form>`);
+      $('#checkBack').onclick = () => go('home');
+      document.querySelectorAll('[data-check-go]').forEach((bt) => { bt.onclick = () => go(bt.dataset.checkGo); });
+      const sync = () => {
+        const n = picked.size;
+        $('#symptomCount').textContent = n ? `${n} selected` : 'Pick at least one';
+        $('#go').disabled = !n;
+      };
+      document.querySelectorAll('input[name=s]').forEach((box) => { box.onchange = () => { box.checked ? picked.add(box.value) : picked.delete(box.value); sync(); }; });
+      sync();
+      $('#f').onsubmit = async (e) => {
+        e.preventDefault();
+        if (!picked.size) return;
+        const btn = $('#go'); btn.disabled = true; btn.textContent = 'Checking…';
+        try {
+          const r = await api('/api/triage', { method: 'POST', body: { symptoms: [...picked] } });
+          drawResult(r);
+        } catch (err) { say(err.message || 'Could not check symptoms. Please try again.', true); btn.disabled = false; btn.textContent = 'See what to do'; }
+      };
     };
+    const drawResult = (r) => {
+      const heads = { emergency: ['Go to a health facility now', 'Do not wait. Tell someone to go with you.'], urgent: ['Get checked today', 'Visit your clinic or a health facility today.'], mild: ['This is usually mild', 'Mention it at your next visit.'], none: ['Nothing selected', ''] };
+      const [headline] = heads[r.level] || heads.none;
+      const fac = me && me.facility, call = fac && bestPhone(fac);
+      const next = me && me.next;
+      const actions = r.level === 'emergency'
+        ? `<button class="full danger" id="alert" type="button">Send emergency alert</button>
+           <a class="btn full ghost" href="tel:${esc(cfg.emergencyNumber)}">Call ${esc(cfg.emergencyNumber)}</a>
+           <button type="button" class="full ghost" data-result-go="ambulance">Find an ambulance</button>
+           <button type="button" class="full ghost" data-result-go="care">Find the nearest hospital</button>`
+        : r.level === 'urgent'
+          ? `<button type="button" class="full" data-result-go="care">Find a health facility</button>
+             ${call ? `<a class="btn full ghost" href="${telHref(call)}">Call ${esc(fac.name)}</a>` : ''}
+             <button type="button" class="full ghost" data-result-go="chat">Ask MamaSafe a question</button>`
+          : `<button type="button" class="full" data-result-go="chat">Ask MamaSafe a question</button>
+             ${next ? `<p class="muted">Your next visit is ${esc(fmtDate(next.date))}.</p>` : ''}`;
+      show(`<button type="button" class="link back" id="again">← Change my answers</button>
+        <div class="result ${r.level}" role="status"><span class="resultkicker">${r.level === 'emergency' ? 'Act now' : r.level === 'urgent' ? 'Today' : 'For your next visit'}</span>
+          <h2>${headline}</h2><p class="advice">${esc(r.advice)}</p></div>
+        <div class="youfeel"><b>You told us</b><div class="chips">${[...picked].map((id) => `<span class="chip on">${esc(label[id] || id)}</span>`).join('')}</div></div>
+        <div class="resultactions">${actions}</div>
+        <p class="muted fine">If symptoms get worse or you are worried, seek care sooner. ${r.level === 'emergency' ? '' : `In an emergency call ${esc(cfg.emergencyNumber)} or open SOS.`}</p>
+        <button type="button" class="link full" id="home2">Back to Home</button>`);
+      $('#again').onclick = draw; $('#home2').onclick = () => go('home');
+      const al = $('#alert'); if (al) al.onclick = () => sendAlert(r.matched);
+      document.querySelectorAll('[data-result-go]').forEach((bt) => { bt.onclick = () => go(bt.dataset.resultGo); });
+    };
+    draw();
   }
 
   async function sendAlert(symptoms) {
@@ -709,7 +815,7 @@
     show(`<div class="sosview"><h1>Emergency help</h1>
       <p class="muted">Use this if you or your baby are in danger, for example heavy bleeding, fits, or severe pain.</p>
       <button class="sosbtn danger" id="sos" type="button">Send emergency alert</button>
-      <div class="card"><b>What happens next</b><div class="muted" style="color:var(--muted)">MamaSafe will try to alert your linked facility and, if added, your emergency contact. Nearby transport may be requested when available. If you need help now, call directly.</div></div>
+      <div class="card"><b>What happens next</b><div class="muted" style="color:var(--muted)">MamaSafe will try to alert your linked facility and your confirmed emergency contact. Nearby transport may be requested when available. If you need help now, call directly.</div></div>
       <button class="full ghost" type="button" id="bookAmbulance" style="margin:0 0 12px">Find and call an ambulance</button>
       <div class="card"><b>Call nearby transport</b><div class="muted" style="color:var(--muted)">See registered ambulances, boda riders and other available drivers near your location.</div><button class="full ghost" type="button" id="nearbyTransport">Find nearby transport</button><div id="transportResults" aria-live="polite"></div></div>
       <a class="btn full" style="background:#fff;color:#8e1b1b" href="tel:${esc(cfg.emergencyNumber)}">Or call ${esc(cfg.emergencyNumber)} now</a></div>`);
@@ -1196,6 +1302,9 @@
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     try { cfg = await api('/api/config'); } catch { /* offline: defaults */ }
     if (!token) return go('auth');
+    // A returning mother never sees the sign-in screen: show a short loading screen, then Home.
+    show('<div class="splash" role="status" aria-label="Loading MamaSafe"><img src="/logo.png" alt="" width="72" height="72"><p>MamaSafe</p></div>', true);
+    nav.hidden = true;
     try {
       await loadMe();
       const back = new URLSearchParams(location.search).get('payment');

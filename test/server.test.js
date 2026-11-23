@@ -52,13 +52,16 @@ test('web journey: OTP sign-in, register, profile, alert, dashboard acknowledge'
   assert.equal((await json(base, '/api/alerts', { method: 'POST', token, body: { symptoms: ['bleeding'] } })).status, 404);
 
   // Validation.
-  const badDate = await json(base, '/api/register', { method: 'POST', token, body: { lmp: '2020-01-01' } });
+  const badDate = await json(base, '/api/register', { method: 'POST', token, body: { name: 'Amina Nansubuga', lmp: '2020-01-01' } });
   assert.equal(badDate.status, 400);
-  const badContact = await json(base, '/api/register', { method: 'POST', token, body: { lmp: isoAgo(100), contactPhone: '12' } });
+  const missingSurname = await json(base, '/api/register', { method: 'POST', token, body: { name: 'Amina', lmp: isoAgo(100) } });
+  assert.equal(missingSurname.status, 400);
+  assert.match(missingSurname.body.error, /full name/i);
+  const badContact = await json(base, '/api/register', { method: 'POST', token, body: { name: 'Amina Nansubuga', lmp: isoAgo(100), contactPhone: '12' } });
   assert.equal(badContact.status, 400);
 
   // Register.
-  const reg = await json(base, '/api/register', { method: 'POST', token, body: { name: 'Amina', lmp: isoAgo(168), facilityId: 1, contactPhone: '0700111222' } });
+  const reg = await json(base, '/api/register', { method: 'POST', token, body: { name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1, contactPhone: '0700111222' } });
   assert.equal(reg.status, 201);
   assert.equal(reg.body.gestation.weeks, 24);
   assert.equal(reg.body.visits.length, 8);
@@ -76,7 +79,7 @@ test('web journey: OTP sign-in, register, profile, alert, dashboard acknowledge'
   // Dashboard sees it and can acknowledge it.
   const list = await json(base, '/api/admin/alerts', { token: staffToken });
   assert.equal(list.body.alerts.length, 1);
-  assert.equal(list.body.alerts[0].mother_name, 'Amina');
+  assert.equal(list.body.alerts[0].mother_name, 'Amina Nansubuga');
   assert.deepEqual(list.body.alerts[0].symptomLabels, ['Heavy vaginal bleeding', 'Swollen face or hands']);
   assert.equal(list.body.alerts[0].weeks, 24);
   const id = list.body.alerts[0].id;

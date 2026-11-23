@@ -113,6 +113,23 @@ function issueToken(db, phone, now) {
   return { token };
 }
 
+// Checks a text-message code (or the demo code) and uses it up, without signing anyone in.
+// Used when creating an account, to prove the person really holds that phone number.
+function checkOtp(db, phone, code, now = Date.now()) {
+  if (demo.isDemoPhone(phone)) return demo.check(phone, code, now);
+  const row = db.prepare('SELECT * FROM otps WHERE phone = ?').get(phone);
+  if (!row || now > row.expires_at) return { error: 'Code expired. Request a new one.' };
+  if (row.attempts >= 5) return { error: 'Too many wrong attempts. Request a new code.' };
+  const given = Buffer.from(sha(phone + ':' + String(code || '').trim()));
+  const want = Buffer.from(row.code_hash);
+  if (!crypto.timingSafeEqual(given, want)) {
+    db.prepare('UPDATE otps SET attempts = attempts + 1 WHERE phone = ?').run(phone);
+    return { error: 'Wrong code.' };
+  }
+  db.prepare('DELETE FROM otps WHERE phone = ?').run(phone);
+  return { ok: true };
+}
+
 function verifyOtp(db, phone, code, now = Date.now()) {
   if (demo.isDemoPhone(phone)) {
     const c = demo.check(phone, code, now);
@@ -145,4 +162,4 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
-module.exports = { requestOtp, verifyOtp, phoneForToken, safeEqual, registerPassword, loginPassword, setPassword, recoverPassword, PASSWORD_MIN };
+module.exports = { requestOtp, verifyOtp, checkOtp, phoneForToken, safeEqual, registerPassword, loginPassword, setPassword, recoverPassword, PASSWORD_MIN };
