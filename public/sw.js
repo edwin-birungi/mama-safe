@@ -1,8 +1,8 @@
 'use strict';
 // Caches the app shell so MamaSafe opens (and shows the SOS call/SMS fallback) with no signal.
 // API calls are never cached.
-const CACHE = 'mamasafe-shell-v21';
-const SHELL = ['/', '/app.js', '/style.css', '/manifest.webmanifest', '/icon.svg', '/logo.svg'];
+const CACHE = 'mamasafe-shell-v25';
+const SHELL = ['/', '/app.js', '/style.css', '/manifest.webmanifest', '/icon.png', '/logo.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

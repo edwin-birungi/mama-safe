@@ -277,6 +277,11 @@ function createServer(db) {
     if (!phone) throw new HttpError(400, 'Enter a valid phone number.');
     const email = String(body.email || '').trim().toLowerCase();
     if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new HttpError(400, 'Enter a valid email address, or leave it blank.');
+    if (String(body.password || '').length < auth.PASSWORD_MIN) throw new HttpError(400, `Choose a password of at least ${auth.PASSWORD_MIN} characters.`);
+    // The phone must be proven first, so nobody can open an account on someone else's number
+    // (and so reach a mother who already registered by USSD or SMS).
+    const proof = auth.checkOtp(db, phone, body.code);
+    if (proof.error) throw new HttpError(400, proof.error);
     const result = auth.registerPassword(db, { phone, email: email || null, password: body.password });
     if (result.error) throw new HttpError(result.status, result.error);
     const mother = mothersSvc.byPhone(db, phone);
@@ -360,24 +365,26 @@ function createServer(db) {
   route('POST', '/api/register', ({ req, body }) => {
     const { phone, mother } = motherAuth(req);
     if (mother) throw new HttpError(409, 'Already registered.');
+    const fullName = String(body.name || '').trim().replace(/\s+/g, ' ');
+    if (fullName.length > 80 || fullName.split(' ').filter(Boolean).length < 2) {
+      throw new HttpError(400, 'Enter your full name, including your first and family names.');
+    }
     const lmp = String(body.lmp || '');
     if (!schedule.validateLmp(schedule.parseDate(lmp), schedule.localToday())) {
       throw new HttpError(400, 'The last period date must be within the last 40 weeks and not in the future.');
     }
     const facilityId = body.facilityId ? Number(body.facilityId) : null;
     if (facilityId && !facilities.byId(db, facilityId)) throw new HttpError(400, 'Unknown facility.');
-    let contactPhone = null;
-    if (body.contactPhone) {
-      contactPhone = normalizePhone(body.contactPhone);
-      if (!contactPhone) throw new HttpError(400, 'Emergency contact number is not valid.');
-    }
+    // The emergency contact is optional here: it never blocks registration. The app keeps reminding her to add and confirm it.
+    const contactPhone = body.contactPhone ? normalizePhone(body.contactPhone) : null;
+    if (body.contactPhone && !contactPhone) throw new HttpError(400, 'Emergency contact number is not valid.');
     const registrationLat = body.location && Number(body.location.lat);
     const registrationLng = body.location && Number(body.location.lng);
     if (body.location && (!Number.isFinite(registrationLat) || registrationLat < -90 || registrationLat > 90 || !Number.isFinite(registrationLng) || registrationLng < -180 || registrationLng > 180)) {
       throw new HttpError(400, 'Could not verify that location. Try sharing it again or continue without it.');
     }
     const m = mothersSvc.create(db, {
-      phone, name: String(body.name || '').trim().slice(0, 40) || null, lmp, facilityId, contactPhone,
+      phone, name: fullName, lmp, facilityId, contactPhone,
       registrationLat: body.location ? registrationLat : null, registrationLng: body.location ? registrationLng : null,
       registrationLocationAt: body.location ? new Date().toISOString() : null,
       smsOptin: body.smsOptin !== false, channel: 'app'
@@ -389,7 +396,7 @@ function createServer(db) {
     const { mother } = motherAuth(req);
     if (!mother) throw new HttpError(404, 'Not registered.');
     const f = {};
-    if (body.name !== undefined) f.name = String(body.name).trim().slice(0, 40) || null;
+    if (body.name !== undefined) f.name = String(body.name).trim().replace(/\s+/g, ' ').slice(0, 80) || null;
     if (body.smsOptin !== undefined) f.smsOptin = !!body.smsOptin;
     if (body.facilityId !== undefined) {
       if (body.facilityId && !facilities.byId(db, Number(body.facilityId))) throw new HttpError(400, 'Unknown facility.');

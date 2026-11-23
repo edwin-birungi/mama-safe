@@ -26,8 +26,10 @@ test('mother account can register, complete a profile, and return by email or ph
   const { base, close } = await start();
   t.after(close);
 
+  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712 345 678' } });
+  assert.equal(otp.status, 200);
   const created = await json(base, '/api/account/register', {
-    method: 'POST', body: { phone: '0712 345 678', email: 'amina@example.org', password: 'mother-pass-123' }
+    method: 'POST', body: { phone: '0712 345 678', email: 'amina@example.org', password: 'mother-pass-123', code: otp.body.devCode }
   });
   assert.equal(created.status, 201);
   assert.match(created.body.token, /^[a-f0-9]{64}$/);
@@ -37,9 +39,16 @@ test('mother account can register, complete a profile, and return by email or ph
 
   const profile = await json(base, '/api/register', {
     method: 'POST', token: created.body.token,
-    body: { name: 'Amina', lmp: isoAgo(168), facilityId: 1 }
+    body: { name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1, contactPhone: '0700111222' }
   });
   assert.equal(profile.status, 201);
+  assert.equal(profile.body.mother.contactVerified, false);
+  const contactCode = await json(base, '/api/contact/request', { method: 'POST', token: created.body.token });
+  assert.equal(contactCode.status, 200);
+  const confirmed = await json(base, '/api/contact/verify', {
+    method: 'POST', token: created.body.token, body: { code: contactCode.body.devCode }
+  });
+  assert.equal(confirmed.body.mother.contactVerified, true);
 
   for (const identifier of ['amina@example.org', '0712345678']) {
     const login = await json(base, '/api/account/login', {
@@ -49,7 +58,7 @@ test('mother account can register, complete a profile, and return by email or ph
     assert.equal(login.body.registered, true);
     const me = await json(base, '/api/me', { token: login.body.token });
     assert.equal(me.status, 200);
-    assert.equal(me.body.mother.name, 'Amina');
+    assert.equal(me.body.mother.name, 'Amina Nansubuga');
   }
 
   assert.equal((await json(base, '/api/account/login', {
@@ -88,4 +97,43 @@ test('staff sessions stay valid across browser returns and expire after 90 days'
   }, createdAt);
   assert.equal(staffAuth.current(db, session.token, createdAt + 24 * 60 * 60 * 1000).name, 'Clinic Staff');
   assert.equal(staffAuth.current(db, session.token, createdAt + 90 * 24 * 60 * 60 * 1000 + 1), null);
+});
+
+test('an account needs a text-message code for the phone: no code or a wrong code creates nothing', async (t) => {
+  const { base, db, close } = await start();
+  t.after(close);
+  const body = { phone: '0712345678', password: 'mother-pass-123' };
+  assert.equal((await json(base, '/api/account/register', { method: 'POST', body })).status, 400);
+  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
+  const wrong = otp.body.devCode === '000000' ? '111111' : '000000';
+  const bad = await json(base, '/api/account/register', { method: 'POST', body: { ...body, code: wrong } });
+  assert.equal(bad.status, 400);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM accounts').get().n, 0);
+  // A short password is refused before the code is used up, so she can fix it and try the same code again.
+  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { ...body, password: 'short', code: otp.body.devCode } })).status, 400);
+  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { ...body, code: otp.body.devCode } })).status, 201);
+});
+
+test('a mother who registered by USSD or SMS cannot be taken over by an account made without her code, but can sign in with a text-message code', async (t) => {
+  const { base, db, close } = await start();
+  t.after(close);
+  require('../src/mothers').create(db, { phone: '+256712345678', name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1, channel: 'ussd' });
+  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { phone: '0712345678', password: 'attacker-pass-1', code: '123456' } })).status, 400);
+  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
+  const login = await json(base, '/api/otp/verify', { method: 'POST', body: { phone: '0712345678', code: otp.body.devCode } });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.registered, true);
+});
+
+test('registering needs no emergency contact; the profile then shows it is still to be added', async (t) => {
+  const { base, close } = await start();
+  t.after(close);
+  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
+  const login = await json(base, '/api/otp/verify', { method: 'POST', body: { phone: '0712345678', code: otp.body.devCode } });
+  const reg = await json(base, '/api/register', { method: 'POST', token: login.body.token, body: { name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1 } });
+  assert.equal(reg.status, 201);
+  assert.equal(reg.body.mother.contactPhone, null);
+  assert.equal(reg.body.mother.contactVerified, false);
+  const later = await json(base, '/api/me', { method: 'PATCH', token: login.body.token, body: { contactPhone: '0700111222' } });
+  assert.equal(later.body.mother.contactPhone, '+256700111222');
 });

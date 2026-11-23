@@ -163,7 +163,7 @@ test('HTTP: checkout needs sign-in, /pay/return ignores the URL status, mock pag
   const otp = await (await post('/api/otp/request', { phone: '0712345678' })).json();
   const { token } = await (await post('/api/otp/verify', { phone: '0712345678', code: otp.devCode })).json();
   assert.equal((await post('/api/payments/checkout', {}, token)).status, 404); // not registered yet
-  const reg = await post('/api/register', { lmp: schedule.fmt(schedule.addDays(schedule.localToday(), -60)) }, token);
+  const reg = await post('/api/register', { name: 'Amina Nansubuga', lmp: schedule.fmt(schedule.addDays(schedule.localToday(), -60)), contactPhone: '0700111222' }, token);
   const me = await reg.json();
   assert.equal(me.payment.required, true);
   assert.equal(me.payment.paid, false);
@@ -369,7 +369,7 @@ test('HTTP: MTN push and status polling work end to end for the web app', async 
   const j = (path, body, token, method = body ? 'POST' : 'GET') => real(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
   const otp = (await j('/api/otp/request', { phone: '0712345678' })).body;
   const { token } = (await j('/api/otp/verify', { phone: '0712345678', code: otp.devCode })).body;
-  await j('/api/register', { lmp: schedule.fmt(schedule.addDays(schedule.localToday(), -60)) }, token);
+  await j('/api/register', { name: 'Amina Nansubuga', lmp: schedule.fmt(schedule.addDays(schedule.localToday(), -60)), contactPhone: '0700111222' }, token);
   assert.equal((await j('/api/payments/momo', { phone: '0701234567' }, token)).status, 503); // Airtel not configured here
   const push = await j('/api/payments/momo', {}, token);
   assert.equal(push.status, 200);
