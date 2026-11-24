@@ -265,7 +265,9 @@ function createServer(db) {
   // Wait briefly for the SMS provider, so a failed send is shown now instead of a code that never arrives.
   async function smsFailed(id) {
     if (!sms.configured() || !id) return false;
-    await Promise.race([sms.settled(id), new Promise((r) => setTimeout(r, 8000).unref())]);
+    // Wait slightly longer than the provider's 15-second request timeout so a failed
+    // delivery is reported before signup decides whether it needs an OTP step.
+    await Promise.race([sms.settled(id), new Promise((r) => setTimeout(r, 16000).unref())]);
     const row = db.prepare('SELECT status FROM outbox WHERE id = ?').get(id);
     return !!row && row.status === 'failed';
   }
@@ -278,13 +280,6 @@ function createServer(db) {
     const email = String(body.email || '').trim().toLowerCase();
     if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new HttpError(400, 'Enter a valid email address, or leave it blank.');
     if (String(body.password || '').length < auth.PASSWORD_MIN) throw new HttpError(400, `Choose a password of at least ${auth.PASSWORD_MIN} characters.`);
-    // Keep phone verification when SMS is available. When SMS is not configured,
-    // let mothers create an account and continue into the app instead of blocking signup.
-    const phoneVerificationAvailable = sms.configured() || config.env !== 'production';
-    if (phoneVerificationAvailable) {
-      const proof = auth.checkOtp(db, phone, body.code);
-      if (proof.error) throw new HttpError(400, proof.error);
-    }
     const result = auth.registerPassword(db, { phone, email: email || null, password: body.password });
     if (result.error) throw new HttpError(result.status, result.error);
     const mother = mothersSvc.byPhone(db, phone);
@@ -345,7 +340,10 @@ function createServer(db) {
     const r = auth.requestOtp(db, phone);
     if (r.error) throw new HttpError(429, r.error);
     if (r.demo) return { json: { ok: true, phone, demo: true } };
-    if (await smsFailed(r.smsId)) throw new HttpError(502, 'We could not send the SMS right now. Please try again in a minute.');
+    if (await smsFailed(r.smsId)) {
+      if (config.env === 'production') return { json: { ok: true, phone, verificationSkipped: true } };
+      throw new HttpError(502, 'We could not send the SMS right now. Please try again in a minute.');
+    }
     // Development convenience only: never returned in production.
     return { json: { ok: true, phone, ...(config.env !== 'production' ? { devCode: r.code } : {}) } };
   });

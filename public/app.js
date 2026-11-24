@@ -38,7 +38,6 @@
   let recoveryCodeToShow = '';
   let recoveryNext = 'login';
   let authPrefill = '';
-  let authStep = '';
   let authDraft = {};
 
   async function api(path, opts = {}) {
@@ -128,7 +127,7 @@
   }
 
   function signOut() {
-    token = null; me = null; authMode = 'login'; authStep = ''; authDraft = {};
+    token = null; me = null; authMode = 'login'; authDraft = {};
     store.del('ms_token');
     go('auth');
   }
@@ -186,30 +185,20 @@
     }
 
     const registering = authMode === 'register';
-    const otpMode = authMode === 'otp';
     const loggingIn = authMode === 'login';
     const recovering = authMode === 'recover';
-    const codeStep = authStep === 'code' && (registering || otpMode);
-    const demoCode = !!authDraft.demo;
-    const title = registering ? (codeStep ? 'Check your messages' : 'Create your account') : otpMode ? (codeStep ? 'Check your messages' : 'Sign in with a code') : recovering ? 'Reset your password' : 'Welcome back';
-    const sub = registering ? (codeStep ? (demoCode ? 'Enter your demo access code to create this account.' : `We sent a 6-digit code to ${esc(authDraft.phone)}.`) : 'Takes about a minute. We will text you a code to confirm your number.')
-      : otpMode ? (codeStep ? (demoCode ? 'Enter your demo access code to sign in.' : `We sent a 6-digit code to ${esc(authDraft.phone)}.`) : 'No password needed. We text a code to your phone.')
-      : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.';
-    const submitText = registering ? (codeStep ? 'Create my account' : 'Send me a code') : otpMode ? (codeStep ? 'Sign in' : 'Send me a code') : recovering ? 'Reset password' : 'Sign in';
-    const codeField = `<label for="code" style="margin-top:0">${demoCode ? 'Demo access code' : '6-digit code'}</label>
-          <input id="code" type="text" ${demoCode ? 'autocomplete="off" maxlength="128" placeholder="Enter the demo access code"' : 'inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"'} required>
-          <p class="muted auth-note" style="margin:6px 0 0">${demoCode ? 'Enter the demo access code provided to you.' : 'The code expires in 10 minutes.'} <button class="link" id="resendCode" type="button">${demoCode ? 'Check access code' : 'Send a new code'}</button> · <button class="link" id="changeNumber" type="button">Use a different number</button></p>`;
+    const title = registering ? 'Create your account' : recovering ? 'Reset your password' : 'Welcome back';
+    const sub = registering ? 'Create your account with a phone number, optional email, and password.'
+      : recovering ? 'Use your recovery code to continue.' : 'Sign in with your phone number or email and password.';
+    const submitText = registering ? 'Create account' : recovering ? 'Reset password' : 'Sign in';
     const fields = registering
-      ? (codeStep ? codeField : `<label for="phone" style="margin-top:0">Phone number <span class="muted">(required)</span></label>
-          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || '')}" required>
+      ? `<label for="phone" style="margin-top:0">Phone number</label>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || authPrefill || '')}" required>
           <label for="email">Email <span class="muted">(optional)</span></label>
           <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="${esc(authDraft.email || '')}">
           <label for="password">Create a password <span class="muted">(at least 8 characters)</span></label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
-          <label for="confirm">Confirm password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`)
-      : otpMode
-        ? (codeStep ? codeField : `<label for="phone" style="margin-top:0">Phone number</label>
-          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || authPrefill || '')}" required>`)
-        : `<label for="identifier" style="margin-top:0">Phone number or email</label>
+          <label for="confirm">Confirm password</label><input id="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`
+      : `<label for="identifier" style="margin-top:0">Phone number or email</label>
           <input id="identifier" type="text" autocomplete="username" placeholder="Phone number or email" value="${esc(authPrefill)}" required>
           ${recovering ? `<label for="recovery">Recovery code</label><input id="recovery" type="text" autocomplete="off" autocapitalize="characters" required>
             <label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
@@ -237,77 +226,32 @@
       <div class="auth-heading"><span class="eyebrow">MAMASAFE</span><h2>${title}</h2><p class="muted">${sub}</p></div>
       <div class="auth-tabs" role="tablist" aria-label="Account action">
         <button type="button" data-auth="register" aria-selected="${registering}">Create account</button>
-        <button type="button" data-auth="login" aria-selected="${loggingIn || otpMode || recovering}">Sign in</button>
+        <button type="button" data-auth="login" aria-selected="${loggingIn || recovering}">Sign in</button>
       </div>
       <form id="accountForm" class="card auth-form">
         ${fields}
         <button class="full" type="submit">${submitText}</button>
-        ${registering && !codeStep ? '<p class="muted auth-note">After signup you will get a recovery code. Save it so you can reset your password without SMS.</p>' : ''}
+        ${registering ? '<p class="muted auth-note">Save your recovery code after signup so you can reset your password later.</p>' : ''}
       </form>
-      ${loggingIn ? '<button class="link full" id="otpLink" type="button">Sign in with a text-message code instead</button><button class="link full" id="forgotPassword" type="button">Forgot your password?</button>' : (recovering || otpMode) ? '<button class="link full" id="backToLogin" type="button">Back to sign in</button>' : ''}
+      ${loggingIn ? '<button class="link full" id="forgotPassword" type="button">Forgot your password?</button>' : recovering ? '<button class="link full" id="backToLogin" type="button">Back to sign in</button>' : ''}
       </div></section>`);
-    const resetStep = () => { authStep = ''; };
-    document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => { authMode = b.dataset.auth; resetStep(); authDraft = {}; renderAuth(); }; });
-    if ($('#forgotPassword')) $('#forgotPassword').onclick = () => { authMode = 'recover'; resetStep(); renderAuth(); };
-    if ($('#otpLink')) $('#otpLink').onclick = () => { authMode = 'otp'; resetStep(); authDraft = { phone: $('#identifier').value.includes('@') ? '' : $('#identifier').value }; renderAuth(); };
-    if ($('#backToLogin')) $('#backToLogin').onclick = () => { authMode = 'login'; resetStep(); renderAuth(); };
-    if ($('#changeNumber')) $('#changeNumber').onclick = () => { resetStep(); renderAuth(); };
-    // Ask the server to text a code. In development the code is shown on screen instead.
-    const sendCode = async (phone) => {
-      const r = await api('/api/otp/request', { method: 'POST', body: { phone } });
-      authDraft.phone = r.phone || phone;
-      authDraft.demo = !!r.demo;
-      return {
-        verificationSkipped: !!r.verificationSkipped,
-        message: r.demo ? 'Enter the demo access code provided to you.' : r.devCode ? `Development code: ${r.devCode}` : ''
-      };
-    };
-    if ($('#resendCode')) $('#resendCode').onclick = async (e) => {
-      e.currentTarget.disabled = true;
-      try { const sent = await sendCode(authDraft.phone); say(sent.message || 'A new code is on its way.'); }
-      catch (err) { say(err.message, true); }
-      finally { if ($('#resendCode')) $('#resendCode').disabled = false; }
-    };
-    const finishRegistration = async (code) => {
-      const r = await api('/api/account/register', { method: 'POST', body: { phone: authDraft.phone, email: authDraft.email, password: authDraft.password, ...(code ? { code } : {}) } });
+    document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => { authMode = b.dataset.auth; authDraft = {}; renderAuth(); }; });
+    if ($('#forgotPassword')) $('#forgotPassword').onclick = () => { authMode = 'recover'; renderAuth(); };
+    if ($('#backToLogin')) $('#backToLogin').onclick = () => { authMode = 'login'; renderAuth(); };
+    const finishRegistration = async () => {
+      const r = await api('/api/account/register', { method: 'POST', body: { phone: authDraft.phone, email: authDraft.email, password: authDraft.password } });
       token = r.token; store.set('ms_token', token);
-      recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; authStep = ''; authDraft = {}; renderAuth();
+      recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; authDraft = {}; renderAuth();
     };
     $('#accountForm').onsubmit = async (e) => {
       e.preventDefault();
       const btn = $('#accountForm button[type=submit]');
-      if (((registering && !codeStep) || recovering) && $('#password').value !== $('#confirm').value) return say('Those passwords do not match.', true);
+      if ((registering || recovering) && $('#password').value !== $('#confirm').value) return say('Those passwords do not match.', true);
       btn.disabled = true;
       try {
-        if (registering && !codeStep) {
-          authDraft = { phone: $('#phone').value.trim(), email: $('#email').value.trim(), password: $('#password').value };
-          const sent = await sendCode(authDraft.phone);
-          if (sent.verificationSkipped) {
-            await finishRegistration();
-            return;
-          }
-          authStep = 'code'; renderAuth(); say(sent.message || 'We sent you a code. Enter it below.');
-          return;
-        }
-        if (otpMode && !codeStep) {
-          const sent = await sendCode($('#phone').value.trim());
-          if (sent.verificationSkipped) {
-            authPrefill = authDraft.phone;
-            authMode = 'register'; authStep = ''; authDraft = { phone: authPrefill };
-            renderAuth(); say('Text-message sign-in is unavailable. Create a password account to continue.');
-          } else {
-            authStep = 'code'; renderAuth(); say(sent.message || 'We sent you a code. Enter it below.');
-          }
-          return;
-        }
-        if (otpMode) {
-          const r = await api('/api/otp/verify', { method: 'POST', body: { phone: authDraft.phone, code: $('#code').value } });
-          token = r.token; store.set('ms_token', token); authStep = ''; authDraft = {};
-          await loadMe(); go(me.registered ? 'home' : 'register');
-          return;
-        }
         if (registering) {
-          await finishRegistration($('#code').value);
+          authDraft = { phone: $('#phone').value.trim(), email: $('#email').value.trim(), password: $('#password').value };
+          await finishRegistration();
           return;
         }
         const r = recovering
@@ -322,7 +266,7 @@
       } catch (err) {
         if (registering && err.status === 409 && /An account already uses this (phone|email)/.test(err.message)) {
           authPrefill = err.message.includes('email') ? authDraft.email : authDraft.phone;
-          authMode = 'login'; authStep = ''; renderAuth();
+          authMode = 'login'; renderAuth();
           say('An account already exists. Sign in with its phone or email and password.');
           return;
         }
@@ -660,7 +604,7 @@
       ${payCard()}
       ${basicPhoneCard()}
       ${me.account && me.account.passwordSet && me.account.recoverySet ? '' : `<details class="card fold"><summary><span><b>Set up account recovery</b><small>Add a password so you can always get back in</small></span></summary>
-        <form id="passwordSetup" class="foldbody"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. The code lets you reset your password without SMS.</p>
+        <form id="passwordSetup" class="foldbody"><p class="muted" style="margin-top:0">Choose a password and save a recovery code. Use the code to reset your password if you cannot sign in.</p>
           <label for="accountEmail">Email <span class="muted">(optional)</span></label><input id="accountEmail" type="email" autocomplete="email">
           <label for="accountPassword">New password</label><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
           <label for="accountConfirm">Confirm password</label><input id="accountConfirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
@@ -942,7 +886,7 @@
 
       <h2>Getting started</h2>
       <ol class="steps card">
-        <li><b>Sign in with your phone number</b><span class="muted">Type your number and tap <i>Send me a code</i>. We text you 6 digits. Type them in and tap Continue. You do not need a password.</span></li>
+        <li><b>Create an account or sign in</b><span class="muted">Create an account with your phone number, optional email and password. When you return, sign in with either your phone number or email and that password.</span></li>
         <li><b>Tell us about your pregnancy</b><span class="muted">Your first name, the first day of your last period (look at a calendar or your diary), and your clinic. Tap <i>Use my location</i> to see the nearest clinics first, or type your district.</span></li>
         <li><b>Add someone we can alert</b><span class="muted">A husband, mother or friend. In an emergency we text them too. This is optional but recommended.</span></li>
         <li><b>Keep SMS reminders on</b><span class="muted">We text you before each clinic visit. You can turn this off any time on the Home screen.</span></li>
@@ -979,7 +923,7 @@
         <p class="muted">Alerts from basic phones cannot include your GPS location, only your registered clinic and area.</p>`)}
 
       <h2>Questions</h2>
-      ${sec('question', 'I did not get my code', `<ul><li>Wait a minute and check your SMS inbox again.</li><li>Check you typed the number correctly, starting with 07.</li><li>Tap <i>Use a different number</i> and try again.</li><li>Still nothing? Use the Care screen or dial ${esc(em)} for emergencies. You do not need an account for those.</li></ul>`)}
+      ${sec('question', 'I cannot sign in', `<ul><li>Use the phone number or email attached to your account.</li><li>Check that your password is correct.</li><li>If you saved your recovery code, choose <i>Forgot your password?</i> on the sign-in screen to reset it.</li></ul>`)}
       ${sec('user', 'I do not know my last period date', `<p>Pick your best guess. If you are unsure, ask your midwife at the clinic: an ultrasound scan can give a better date.</p>`)}
       ${sec('chat', 'Will it cost me money?', `<p>Emergency alerts, the danger-sign check and finding a hospital are <b>free</b>. Your service may charge a one-time fee to switch on SMS reminders. If it does, you will see a <b>Pay</b> card on the Home screen. We never see your card number or mobile money PIN.</p>`)}
       ${sec('shield', 'Who sees my information?', `<p>Your phone number, pregnancy dates, clinic and any alerts you send are visible to MamaSafe and to staff at health facilities who respond to alerts. They are used only for reminders and emergencies. Sign out on a shared phone using the button on Home.</p>`)}

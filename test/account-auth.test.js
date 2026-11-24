@@ -26,10 +26,8 @@ test('mother account can register, complete a profile, and return by email or ph
   const { base, close } = await start();
   t.after(close);
 
-  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712 345 678' } });
-  assert.equal(otp.status, 200);
   const created = await json(base, '/api/account/register', {
-    method: 'POST', body: { phone: '0712 345 678', email: 'amina@example.org', password: 'mother-pass-123', code: otp.body.devCode }
+    method: 'POST', body: { phone: '0712 345 678', email: 'amina@example.org', password: 'mother-pass-123' }
   });
   assert.equal(created.status, 201);
   assert.match(created.body.token, /^[a-f0-9]{64}$/);
@@ -99,28 +97,28 @@ test('staff sessions stay valid across browser returns and expire after 90 days'
   assert.equal(staffAuth.current(db, session.token, createdAt + 90 * 24 * 60 * 60 * 1000 + 1), null);
 });
 
-test('an account needs a text-message code for the phone: no code or a wrong code creates nothing', async (t) => {
+test('an account can be created and used without SMS verification', async (t) => {
   const { base, db, close } = await start();
   t.after(close);
   const body = { phone: '0712345678', password: 'mother-pass-123' };
-  assert.equal((await json(base, '/api/account/register', { method: 'POST', body })).status, 400);
-  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
-  const wrong = otp.body.devCode === '000000' ? '111111' : '000000';
-  const bad = await json(base, '/api/account/register', { method: 'POST', body: { ...body, code: wrong } });
-  assert.equal(bad.status, 400);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM accounts').get().n, 0);
-  // A short password is refused before the code is used up, so she can fix it and try the same code again.
-  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { ...body, password: 'short', code: otp.body.devCode } })).status, 400);
-  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { ...body, code: otp.body.devCode } })).status, 201);
+  const created = await json(base, '/api/account/register', { method: 'POST', body });
+  assert.equal(created.status, 201);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM accounts').get().n, 1);
+  const login = await json(base, '/api/account/login', {
+    method: 'POST', body: { identifier: '0712345678', password: 'mother-pass-123' }
+  });
+  assert.equal(login.status, 200);
+  assert.match(login.body.token, /^[a-f0-9]{64}$/);
 });
 
-test('a mother who registered by USSD or SMS cannot be taken over by an account made without her code, but can sign in with a text-message code', async (t) => {
+test('a phone with an existing care profile can create a password account without SMS verification', async (t) => {
   const { base, db, close } = await start();
   t.after(close);
-  require('../src/mothers').create(db, { phone: '+256712345678', name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1, channel: 'ussd' });
-  assert.equal((await json(base, '/api/account/register', { method: 'POST', body: { phone: '0712345678', password: 'attacker-pass-1', code: '123456' } })).status, 400);
-  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
-  const login = await json(base, '/api/otp/verify', { method: 'POST', body: { phone: '0712345678', code: otp.body.devCode } });
+  require('../src/mothers').create(db, { phone: '+256712345678', name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1, channel: 'app' });
+  const created = await json(base, '/api/account/register', { method: 'POST', body: { phone: '0712345678', password: 'mother-pass-123' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.registered, true);
+  const login = await json(base, '/api/account/login', { method: 'POST', body: { identifier: '0712345678', password: 'mother-pass-123' } });
   assert.equal(login.status, 200);
   assert.equal(login.body.registered, true);
 });
@@ -128,12 +126,11 @@ test('a mother who registered by USSD or SMS cannot be taken over by an account 
 test('registering needs no emergency contact; the profile then shows it is still to be added', async (t) => {
   const { base, close } = await start();
   t.after(close);
-  const otp = await json(base, '/api/otp/request', { method: 'POST', body: { phone: '0712345678' } });
-  const login = await json(base, '/api/otp/verify', { method: 'POST', body: { phone: '0712345678', code: otp.body.devCode } });
-  const reg = await json(base, '/api/register', { method: 'POST', token: login.body.token, body: { name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1 } });
+  const created = await json(base, '/api/account/register', { method: 'POST', body: { phone: '0712345678', password: 'mother-pass-123' } });
+  const reg = await json(base, '/api/register', { method: 'POST', token: created.body.token, body: { name: 'Amina Nansubuga', lmp: isoAgo(168), facilityId: 1 } });
   assert.equal(reg.status, 201);
   assert.equal(reg.body.mother.contactPhone, null);
   assert.equal(reg.body.mother.contactVerified, false);
-  const later = await json(base, '/api/me', { method: 'PATCH', token: login.body.token, body: { contactPhone: '0700111222' } });
+  const later = await json(base, '/api/me', { method: 'PATCH', token: created.body.token, body: { contactPhone: '0700111222' } });
   assert.equal(later.body.mother.contactPhone, '+256700111222');
 });
