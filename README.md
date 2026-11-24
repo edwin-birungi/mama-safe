@@ -137,7 +137,7 @@ Limits you should know about:
 ## How it works
 
 - **USSD** is stateless: the gateway sends every answer so far (`2*5*1`); we replay it through a small state machine (`src/ussd.js`). Every screen is tested to fit the 182-character limit.
-- **Web account sign-in** uses a phone number or optional email address plus password. Contact ownership is not verified in the current password flow. Legacy OTP endpoints remain available during migration; configure a live SMS provider before relying on phone verification or password recovery.
+- **Web account sign-in** uses a phone number or optional email address plus password. Sign in with either identifier. A phone number is required to create a maternal care profile; email is an alternate sign-in identifier. Password recovery uses the one-time recovery code shown at signup. Phone ownership is not verified during account creation.
 - **Emergency alert** (`src/alerts.js`): saves an alert, SMSes the facility's alert mobile if it has one (they reply `ACK 12`), SMSes the emergency contact, and confirms to the mother. Repeated taps within 5 minutes do not page twice. Facility choice: nearest **24-hour** facility when GPS is available; otherwise her own facility if it is 24-hour, else a 24-hour one in her area.
 - **Reminders** (`src/reminders.js`): 3 days before, 1 day before and on the day of the next visit, 08:00 to 19:00 East Africa time, each sent once. Visits follow the 8-contact WHO schedule (weeks 12, 20, 26, 30, 34, 36, 38, 40).
 - **Triage** (`src/triage.js`): danger signs → *emergency*, check-up-soon signs → *urgent*, common symptoms → *mild*.
