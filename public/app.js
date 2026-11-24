@@ -190,14 +190,15 @@
     const loggingIn = authMode === 'login';
     const recovering = authMode === 'recover';
     const codeStep = authStep === 'code' && (registering || otpMode);
+    const demoCode = !!authDraft.demo;
     const title = registering ? (codeStep ? 'Check your messages' : 'Create your account') : otpMode ? (codeStep ? 'Check your messages' : 'Sign in with a code') : recovering ? 'Reset your password' : 'Welcome back';
-    const sub = registering ? (codeStep ? `We sent a 6-digit code to ${esc(authDraft.phone)}.` : 'Takes about a minute. We will text you a code to confirm your number.')
-      : otpMode ? (codeStep ? `We sent a 6-digit code to ${esc(authDraft.phone)}.` : 'No password needed. We text a code to your phone.')
+    const sub = registering ? (codeStep ? (demoCode ? 'Enter your demo access code to create this account.' : `We sent a 6-digit code to ${esc(authDraft.phone)}.`) : 'Takes about a minute. We will text you a code to confirm your number.')
+      : otpMode ? (codeStep ? (demoCode ? 'Enter your demo access code to sign in.' : `We sent a 6-digit code to ${esc(authDraft.phone)}.`) : 'No password needed. We text a code to your phone.')
       : recovering ? 'Use your recovery code to continue.' : 'Sign in to continue your care.';
     const submitText = registering ? (codeStep ? 'Create my account' : 'Send me a code') : otpMode ? (codeStep ? 'Sign in' : 'Send me a code') : recovering ? 'Reset password' : 'Sign in';
-    const codeField = `<label for="code" style="margin-top:0">6-digit code</label>
-          <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required>
-          <p class="muted auth-note" style="margin:6px 0 0">The code expires in 10 minutes. <button class="link" id="resendCode" type="button">Send a new code</button> · <button class="link" id="changeNumber" type="button">Use a different number</button></p>`;
+    const codeField = `<label for="code" style="margin-top:0">${demoCode ? 'Demo access code' : '6-digit code'}</label>
+          <input id="code" type="text" ${demoCode ? 'autocomplete="off" maxlength="128" placeholder="Enter the demo access code"' : 'inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"'} required>
+          <p class="muted auth-note" style="margin:6px 0 0">${demoCode ? 'Enter the demo access code provided to you.' : 'The code expires in 10 minutes.'} <button class="link" id="resendCode" type="button">${demoCode ? 'Check access code' : 'Send a new code'}</button> · <button class="link" id="changeNumber" type="button">Use a different number</button></p>`;
     const fields = registering
       ? (codeStep ? codeField : `<label for="phone" style="margin-top:0">Phone number <span class="muted">(required)</span></label>
           <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" value="${esc(authDraft.phone || '')}" required>
@@ -254,14 +255,23 @@
     // Ask the server to text a code. In development the code is shown on screen instead.
     const sendCode = async (phone) => {
       const r = await api('/api/otp/request', { method: 'POST', body: { phone } });
-      authDraft.phone = phone;
-      return r.devCode ? `Development code: ${r.devCode}` : '';
+      authDraft.phone = r.phone || phone;
+      authDraft.demo = !!r.demo;
+      return {
+        verificationSkipped: !!r.verificationSkipped,
+        message: r.demo ? 'Enter the demo access code provided to you.' : r.devCode ? `Development code: ${r.devCode}` : ''
+      };
     };
     if ($('#resendCode')) $('#resendCode').onclick = async (e) => {
       e.currentTarget.disabled = true;
-      try { const dev = await sendCode(authDraft.phone); say(dev || 'A new code is on its way.'); }
+      try { const sent = await sendCode(authDraft.phone); say(sent.message || 'A new code is on its way.'); }
       catch (err) { say(err.message, true); }
       finally { if ($('#resendCode')) $('#resendCode').disabled = false; }
+    };
+    const finishRegistration = async (code) => {
+      const r = await api('/api/account/register', { method: 'POST', body: { phone: authDraft.phone, email: authDraft.email, password: authDraft.password, ...(code ? { code } : {}) } });
+      token = r.token; store.set('ms_token', token);
+      recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; authStep = ''; authDraft = {}; renderAuth();
     };
     $('#accountForm').onsubmit = async (e) => {
       e.preventDefault();
@@ -271,13 +281,23 @@
       try {
         if (registering && !codeStep) {
           authDraft = { phone: $('#phone').value.trim(), email: $('#email').value.trim(), password: $('#password').value };
-          const dev = await sendCode(authDraft.phone);
-          authStep = 'code'; renderAuth(); say(dev || 'We sent you a code. Enter it below.');
+          const sent = await sendCode(authDraft.phone);
+          if (sent.verificationSkipped) {
+            await finishRegistration();
+            return;
+          }
+          authStep = 'code'; renderAuth(); say(sent.message || 'We sent you a code. Enter it below.');
           return;
         }
         if (otpMode && !codeStep) {
-          const dev = await sendCode($('#phone').value.trim());
-          authStep = 'code'; renderAuth(); say(dev || 'We sent you a code. Enter it below.');
+          const sent = await sendCode($('#phone').value.trim());
+          if (sent.verificationSkipped) {
+            authPrefill = authDraft.phone;
+            authMode = 'register'; authStep = ''; authDraft = { phone: authPrefill };
+            renderAuth(); say('Text-message sign-in is unavailable. Create a password account to continue.');
+          } else {
+            authStep = 'code'; renderAuth(); say(sent.message || 'We sent you a code. Enter it below.');
+          }
           return;
         }
         if (otpMode) {
@@ -286,15 +306,14 @@
           await loadMe(); go(me.registered ? 'home' : 'register');
           return;
         }
-        const r = registering
-          ? await api('/api/account/register', { method: 'POST', body: { phone: authDraft.phone, email: authDraft.email, password: authDraft.password, code: $('#code').value } })
-          : recovering
+        if (registering) {
+          await finishRegistration($('#code').value);
+          return;
+        }
+        const r = recovering
             ? await api('/api/account/recover', { method: 'POST', body: { identifier: $('#identifier').value, recoveryCode: $('#recovery').value, password: $('#password').value } })
             : await api('/api/account/login', { method: 'POST', body: { identifier: $('#identifier').value, password: $('#password').value } });
-        if (registering) {
-          token = r.token; store.set('ms_token', token);
-          recoveryCodeToShow = r.recoveryCode; recoveryNext = 'profile'; authMode = 'recovery-code'; authStep = ''; authDraft = {}; renderAuth();
-        } else if (recovering) {
+        if (recovering) {
           recoveryCodeToShow = r.recoveryCode; recoveryNext = 'login'; authMode = 'recovery-code'; renderAuth();
         } else {
           token = r.token; store.set('ms_token', token);
