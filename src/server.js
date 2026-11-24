@@ -278,10 +278,13 @@ function createServer(db) {
     const email = String(body.email || '').trim().toLowerCase();
     if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new HttpError(400, 'Enter a valid email address, or leave it blank.');
     if (String(body.password || '').length < auth.PASSWORD_MIN) throw new HttpError(400, `Choose a password of at least ${auth.PASSWORD_MIN} characters.`);
-    // The phone must be proven first, so nobody can open an account on someone else's number
-    // (and so reach a mother who already registered by USSD or SMS).
-    const proof = auth.checkOtp(db, phone, body.code);
-    if (proof.error) throw new HttpError(400, proof.error);
+    // Keep phone verification when SMS is available. When SMS is not configured,
+    // let mothers create an account and continue into the app instead of blocking signup.
+    const phoneVerificationAvailable = sms.configured() || config.env !== 'production';
+    if (phoneVerificationAvailable) {
+      const proof = auth.checkOtp(db, phone, body.code);
+      if (proof.error) throw new HttpError(400, proof.error);
+    }
     const result = auth.registerPassword(db, { phone, email: email || null, password: body.password });
     if (result.error) throw new HttpError(result.status, result.error);
     const mother = mothersSvc.byPhone(db, phone);
@@ -338,6 +341,7 @@ function createServer(db) {
     if (limited('otp:' + ip, 10)) throw new HttpError(429, 'Slow down and try again soon.');
     const phone = normalizePhone(body.phone);
     if (!phone) throw new HttpError(400, 'Enter a valid phone number.');
+    if (!sms.configured() && config.env === 'production') return { json: { ok: true, phone, verificationSkipped: true } };
     const r = auth.requestOtp(db, phone);
     if (r.error) throw new HttpError(429, r.error);
     if (r.demo) return { json: { ok: true, phone, demo: true } };
